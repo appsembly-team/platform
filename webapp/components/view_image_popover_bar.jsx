@@ -1,7 +1,9 @@
-// Copyright (c) 2015 Mattermost, Inc. All Rights Reserved.
+// Copyright (c) 2015-present Mattermost, Inc. All Rights Reserved.
 // See License.txt for license information.
 
 import {FormattedMessage} from 'react-intl';
+
+import PropTypes from 'prop-types';
 
 import React from 'react';
 
@@ -75,10 +77,10 @@ ViewImagePopoverBar.defaultProps = {
 };
 
 ViewImagePopoverBar.propTypes = {
-    show: React.PropTypes.bool.isRequired,
-    fileId: React.PropTypes.number.isRequired,
-    totalFiles: React.PropTypes.number.isRequired,
-    filename: React.PropTypes.string.isRequired,
-    fileURL: React.PropTypes.string.isRequired,
-    onGetPublicLink: React.PropTypes.func.isRequired
+    show: PropTypes.bool.isRequired,
+    fileId: PropTypes.number.isRequired,
+    totalFiles: PropTypes.number.isRequired,
+    filename: PropTypes.string.isRequired,
+    fileURL: PropTypes.string.isRequired,
+    onGetPublicLink: PropTypes.func.isRequired
 };

@@ -1,4 +1,4 @@
-// Copyright (c) 2015 Mattermost, Inc. All Rights Reserved.
+// Copyright (c) 2015-present Mattermost, Inc. All Rights Reserved.
 // See License.txt for license information.
 
 import UserStore from 'stores/user_store.jsx';
@@ -7,7 +7,6 @@ import * as UserAgent from 'utils/user_agent.jsx';
 import * as Utils from 'utils/utils.jsx';
 import ErrorBar from 'components/error_bar.jsx';
 import LoadingScreen from 'components/loading_screen.jsx';
-import * as AsyncClient from 'utils/async_client.jsx';
 import * as GlobalActions from 'actions/global_actions.jsx';
 import SelectTeamItem from './components/select_team_item.jsx';
 
@@ -15,10 +14,17 @@ import {Link} from 'react-router/es6';
 
 import {FormattedMessage} from 'react-intl';
 
+import PropTypes from 'prop-types';
+
 import React from 'react';
 import logoImage from 'images/logo.png';
 
 export default class SelectTeam extends React.Component {
+    static propTypes = {
+        actions: PropTypes.shape({
+            getTeams: PropTypes.func.isRequired
+        }).isRequired
+    }
 
     constructor(props) {
         super(props);
@@ -33,7 +39,7 @@ export default class SelectTeam extends React.Component {
 
     componentDidMount() {
         TeamStore.addChangeListener(this.onTeamChange);
-        AsyncClient.getAllTeamListings();
+        this.props.actions.getTeams(0, 200);
     }
 
     componentWillUnmount() {

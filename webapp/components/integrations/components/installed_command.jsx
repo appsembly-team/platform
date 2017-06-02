@@ -1,20 +1,24 @@
-// Copyright (c) 2016 Mattermost, Inc. All Rights Reserved.
+import PropTypes from 'prop-types';
+
+// Copyright (c) 2016-present Mattermost, Inc. All Rights Reserved.
 // See License.txt for license information.
 
 import React from 'react';
 import {Link} from 'react-router';
 import {FormattedMessage} from 'react-intl';
 
+import DeleteIntegration from './delete_integration.jsx';
+
 export default class InstalledCommand extends React.Component {
     static get propTypes() {
         return {
-            team: React.PropTypes.object.isRequired,
-            command: React.PropTypes.object.isRequired,
-            onRegenToken: React.PropTypes.func.isRequired,
-            onDelete: React.PropTypes.func.isRequired,
-            filter: React.PropTypes.string,
-            creator: React.PropTypes.object.isRequired,
-            canChange: React.PropTypes.bool.isRequired
+            team: PropTypes.object.isRequired,
+            command: PropTypes.object.isRequired,
+            onRegenToken: PropTypes.func.isRequired,
+            onDelete: PropTypes.func.isRequired,
+            filter: PropTypes.string,
+            creator: PropTypes.object.isRequired,
+            canChange: PropTypes.bool.isRequired
         };
     }
 
@@ -33,9 +37,7 @@ export default class InstalledCommand extends React.Component {
         this.props.onRegenToken(this.props.command);
     }
 
-    handleDelete(e) {
-        e.preventDefault();
-
+    handleDelete() {
         this.props.onDelete(this.props.command);
     }
 
@@ -106,15 +108,10 @@ export default class InstalledCommand extends React.Component {
                         />
                     </Link>
                     {' - '}
-                    <a
-                        href='#'
-                        onClick={this.handleDelete}
-                    >
-                        <FormattedMessage
-                            id='installed_integrations.delete'
-                            defaultMessage='Delete'
-                        />
-                    </a>
+                    <DeleteIntegration
+                        messageId='installed_commands.delete.confirm'
+                        onDelete={this.handleDelete}
+                    />
                 </div>
             );
         }

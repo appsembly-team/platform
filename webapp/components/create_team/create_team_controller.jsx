@@ -1,4 +1,4 @@
-// Copyright (c) 2015 Mattermost, Inc. All Rights Reserved.
+// Copyright (c) 2015-present Mattermost, Inc. All Rights Reserved.
 // See License.txt for license information.
 
 import ErrorBar from 'components/error_bar.jsx';
@@ -7,6 +7,8 @@ import TeamStore from 'stores/team_store.jsx';
 
 import {FormattedMessage} from 'react-intl';
 import {browserHistory, Link} from 'react-router/es6';
+
+import PropTypes from 'prop-types';
 
 import React from 'react';
 
@@ -90,5 +92,5 @@ export default class CreateTeamController extends React.Component {
 }
 
 CreateTeamController.propTypes = {
-    children: React.PropTypes.node
+    children: PropTypes.node
 };

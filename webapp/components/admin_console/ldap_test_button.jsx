@@ -1,19 +1,22 @@
-// Copyright (c) 2016 Mattermost, Inc. All Rights Reserved.
+import PropTypes from 'prop-types';
+
+// Copyright (c) 2016-present Mattermost, Inc. All Rights Reserved.
 // See License.txt for license information.
 
 import React from 'react';
 
-import Client from 'client/web_client.jsx';
 import * as Utils from 'utils/utils.jsx';
 
 import {FormattedMessage, FormattedHTMLMessage} from 'react-intl';
 
+import {ldapTest} from 'actions/admin_actions.jsx';
+
 export default class LdapTestButton extends React.Component {
     static get propTypes() {
         return {
-            disabled: React.PropTypes.bool,
-            submitFunction: React.PropTypes.func,
-            saveNeeded: React.PropTypes.bool
+            disabled: PropTypes.bool,
+            submitFunction: PropTypes.func,
+            saveNeeded: PropTypes.bool
         };
     }
     constructor(props) {
@@ -38,7 +41,7 @@ export default class LdapTestButton extends React.Component {
         });
 
         const doRequest = () => { //eslint-disable-line func-style
-            Client.ldapTest(
+            ldapTest(
                 () => {
                     this.setState({
                         buisy: false,

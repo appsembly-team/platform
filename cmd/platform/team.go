@@ -1,4 +1,4 @@
-// Copyright (c) 2016 Mattermost, Inc. All Rights Reserved.
+// Copyright (c) 2016-present Mattermost, Inc. All Rights Reserved.
 // See License.txt for license information.
 package main
 
@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/mattermost/platform/api"
 	"github.com/mattermost/platform/app"
 	"github.com/mattermost/platform/model"
 	"github.com/spf13/cobra"
@@ -68,7 +67,9 @@ func init() {
 }
 
 func createTeamCmdF(cmd *cobra.Command, args []string) error {
-	initDBCommandContextCobra(cmd)
+	if err := initDBCommandContextCobra(cmd); err != nil {
+		return err
+	}
 
 	name, errn := cmd.Flags().GetString("name")
 	if errn != nil || name == "" {
@@ -101,7 +102,9 @@ func createTeamCmdF(cmd *cobra.Command, args []string) error {
 }
 
 func removeUsersCmdF(cmd *cobra.Command, args []string) error {
-	initDBCommandContextCobra(cmd)
+	if err := initDBCommandContextCobra(cmd); err != nil {
+		return err
+	}
 
 	if len(args) < 2 {
 		return errors.New("Not enough arguments.")
@@ -125,13 +128,15 @@ func removeUserFromTeam(team *model.Team, user *model.User, userArg string) {
 		CommandPrintErrorln("Can't find user '" + userArg + "'")
 		return
 	}
-	if err := api.LeaveTeam(team, user); err != nil {
+	if err := app.LeaveTeam(team, user); err != nil {
 		CommandPrintErrorln("Unable to remove '" + userArg + "' from " + team.Name + ". Error: " + err.Error())
 	}
 }
 
 func addUsersCmdF(cmd *cobra.Command, args []string) error {
-	initDBCommandContextCobra(cmd)
+	if err := initDBCommandContextCobra(cmd); err != nil {
+		return err
+	}
 
 	if len(args) < 2 {
 		return errors.New("Not enough arguments.")
@@ -155,13 +160,15 @@ func addUserToTeam(team *model.Team, user *model.User, userArg string) {
 		CommandPrintErrorln("Can't find user '" + userArg + "'")
 		return
 	}
-	if err := app.JoinUserToTeam(team, user); err != nil {
+	if err := app.JoinUserToTeam(team, user, ""); err != nil {
 		CommandPrintErrorln("Unable to add '" + userArg + "' to " + team.Name)
 	}
 }
 
 func deleteTeamsCmdF(cmd *cobra.Command, args []string) error {
-	initDBCommandContextCobra(cmd)
+	if err := initDBCommandContextCobra(cmd); err != nil {
+		return err
+	}
 
 	if len(args) < 1 {
 		return errors.New("Not enough arguments.")
@@ -200,5 +207,5 @@ func deleteTeamsCmdF(cmd *cobra.Command, args []string) error {
 }
 
 func deleteTeam(team *model.Team) *model.AppError {
-	return api.PermanentDeleteTeam(team)
+	return app.PermanentDeleteTeam(team)
 }

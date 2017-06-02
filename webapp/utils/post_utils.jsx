@@ -1,4 +1,4 @@
-// Copyright (c) 2016 Mattermost, Inc. All Rights Reserved.
+// Copyright (c) 2016-present Mattermost, Inc. All Rights Reserved.
 // See License.txt for license information.
 
 import Client from 'client/web_client.jsx';
@@ -10,6 +10,10 @@ import UserStore from 'stores/user_store.jsx';
 
 export function isSystemMessage(post) {
     return post.type && (post.type.lastIndexOf(Constants.SYSTEM_MESSAGE_PREFIX) === 0);
+}
+
+export function isFromWebhook(post) {
+    return post.props && post.props.from_webhook === 'true';
 }
 
 export function isPostOwner(post) {

@@ -1,4 +1,4 @@
-// Copyright (c) 2016 Mattermost, Inc. All Rights Reserved.
+// Copyright (c) 2016-present Mattermost, Inc. All Rights Reserved.
 // See License.txt for license information.
 
 import BackstageList from 'components/backstage/components/backstage_list.jsx';
@@ -7,18 +7,20 @@ import InstalledCommand from './installed_command.jsx';
 import * as AsyncClient from 'utils/async_client.jsx';
 import * as Utils from 'utils/utils.jsx';
 
+import PropTypes from 'prop-types';
+
 import React from 'react';
 import {FormattedMessage} from 'react-intl';
 
 export default class InstalledCommands extends React.Component {
     static get propTypes() {
         return {
-            team: React.PropTypes.object,
-            user: React.PropTypes.object,
-            users: React.PropTypes.object,
-            commands: React.PropTypes.array,
-            loading: React.PropTypes.bool,
-            isAdmin: React.PropTypes.bool
+            team: PropTypes.object,
+            user: PropTypes.object,
+            users: PropTypes.object,
+            commands: PropTypes.array,
+            loading: PropTypes.bool,
+            isAdmin: PropTypes.bool
         };
     }
 

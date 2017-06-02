@@ -1,4 +1,4 @@
-// Copyright (c) 2015 Mattermost, Inc. All Rights Reserved.
+// Copyright (c) 2015-present Mattermost, Inc. All Rights Reserved.
 // See License.txt for license information.
 
 import AppDispatcher from 'dispatcher/app_dispatcher.jsx';
@@ -9,14 +9,14 @@ import UserStore from 'stores/user_store.jsx';
 import BrowserStore from 'stores/browser_store.jsx';
 import ErrorStore from 'stores/error_store.jsx';
 import TeamStore from 'stores/team_store.jsx';
-import PreferenceStore from 'stores/preference_store.jsx';
 import SearchStore from 'stores/search_store.jsx';
 
 import {handleNewPost, loadPosts, loadPostsBefore, loadPostsAfter} from 'actions/post_actions.jsx';
-import {loadProfilesAndTeamMembersForDMSidebar} from 'actions/user_actions.jsx';
+import {loadProfilesForSidebar} from 'actions/user_actions.jsx';
 import {loadChannelsForCurrentUser} from 'actions/channel_actions.jsx';
 import {stopPeriodicStatusUpdates} from 'actions/status_actions.jsx';
 import * as WebsocketActions from 'actions/websocket_actions.jsx';
+import {trackEvent} from 'actions/diagnostics_actions.jsx';
 
 import Constants from 'utils/constants.jsx';
 const ActionTypes = Constants.ActionTypes;
@@ -24,12 +24,19 @@ const ActionTypes = Constants.ActionTypes;
 import Client from 'client/web_client.jsx';
 import * as AsyncClient from 'utils/async_client.jsx';
 import WebSocketClient from 'client/web_websocket_client.jsx';
+import {sortTeamsByDisplayName} from 'utils/team_utils.jsx';
 import * as Utils from 'utils/utils.jsx';
 
 import en from 'i18n/en.json';
 import * as I18n from 'i18n/i18n.jsx';
-import {trackPage} from 'actions/analytics_actions.jsx';
 import {browserHistory} from 'react-router/es6';
+
+// Redux actions
+import store from 'stores/redux_store.jsx';
+const dispatch = store.dispatch;
+const getState = store.getState;
+import {removeUserFromTeam} from 'mattermost-redux/actions/teams';
+import {viewChannel, getChannelStats, getMyChannelMember, getChannelAndMyMember} from 'mattermost-redux/actions/channels';
 
 export function emitChannelClickEvent(channel) {
     function userVisitedFakeChannel(chan, success, fail) {
@@ -46,20 +53,25 @@ export function emitChannelClickEvent(channel) {
     }
     function switchToChannel(chan) {
         const channelMember = ChannelStore.getMyMember(chan.id);
-        const getMyChannelMembersPromise = AsyncClient.getChannelMember(chan.id, UserStore.getCurrentId());
+        const getMyChannelMemberPromise = getMyChannelMember(chan.id)(dispatch, getState);
+        const oldChannelId = ChannelStore.getCurrentId();
 
-        getMyChannelMembersPromise.then(() => {
-            AsyncClient.getChannelStats(chan.id, true);
-            AsyncClient.viewChannel(chan.id, ChannelStore.getCurrentId());
+        getMyChannelMemberPromise.then(() => {
+            getChannelStats(chan.id)(dispatch, getState);
+            viewChannel(chan.id, oldChannelId)(dispatch, getState);
             loadPosts(chan.id);
-            trackPage();
+
+            // Mark previous and next channel as read
+            ChannelStore.resetCounts([chan.id, oldChannelId]);
         });
 
-        // Mark previous and next channel as read
-        ChannelStore.resetCounts(ChannelStore.getCurrentId());
-        ChannelStore.resetCounts(chan.id);
+        // Subtract mentions for the team
+        const {msgs, mentions} = ChannelStore.getUnreadCounts()[chan.id] || {msgs: 0, mentions: 0};
+        TeamStore.subtractUnread(chan.team_id, msgs, mentions);
 
         BrowserStore.setGlobalItem(chan.team_id, chan.id);
+
+        loadProfilesForSidebar();
 
         AppDispatcher.handleViewAction({
             type: ActionTypes.CLICK_CHANNEL,
@@ -68,7 +80,7 @@ export function emitChannelClickEvent(channel) {
             team_id: chan.team_id,
             total_msg_count: chan.total_msg_count,
             channelMember,
-            prev: ChannelStore.getCurrentId()
+            prev: oldChannelId
         });
     }
 
@@ -87,69 +99,6 @@ export function emitChannelClickEvent(channel) {
     }
 }
 
-export function emitInitialLoad(callback) {
-    Client.getInitialLoad(
-            (data) => {
-                global.window.mm_config = data.client_cfg;
-                global.window.mm_license = data.license_cfg;
-
-                UserStore.setNoAccounts(data.no_accounts);
-
-                if (data.user && data.user.id) {
-                    global.window.mm_user = data.user;
-                    AppDispatcher.handleServerAction({
-                        type: ActionTypes.RECEIVED_ME,
-                        me: data.user
-                    });
-                }
-
-                if (data.preferences) {
-                    AppDispatcher.handleServerAction({
-                        type: ActionTypes.RECEIVED_PREFERENCES,
-                        preferences: data.preferences
-                    });
-                }
-
-                if (data.teams) {
-                    var teams = {};
-                    data.teams.forEach((team) => {
-                        teams[team.id] = team;
-                    });
-
-                    AppDispatcher.handleServerAction({
-                        type: ActionTypes.RECEIVED_ALL_TEAMS,
-                        teams
-                    });
-                }
-
-                if (data.team_members) {
-                    AppDispatcher.handleServerAction({
-                        type: ActionTypes.RECEIVED_MY_TEAM_MEMBERS,
-                        team_members: data.team_members
-                    });
-                }
-
-                if (data.direct_profiles) {
-                    AppDispatcher.handleServerAction({
-                        type: ActionTypes.RECEIVED_DIRECT_PROFILES,
-                        profiles: data.direct_profiles
-                    });
-                }
-
-                if (callback) {
-                    callback();
-                }
-            },
-            (err) => {
-                AsyncClient.dispatchError(err, 'getInitialLoad');
-
-                if (callback) {
-                    callback();
-                }
-            }
-        );
-}
-
 export function doFocusPost(channelId, postId, data) {
     AppDispatcher.handleServerAction({
         type: ActionTypes.RECEIVED_FOCUSED_POST,
@@ -158,8 +107,7 @@ export function doFocusPost(channelId, postId, data) {
         post_list: data
     });
     loadChannelsForCurrentUser();
-    AsyncClient.getMoreChannels(true);
-    AsyncClient.getChannelStats(channelId);
+    getChannelStats(channelId)(dispatch, getState);
     loadPostsBefore(postId, 0, Constants.POST_FOCUS_CONTEXT_RADIUS, true);
     loadPostsAfter(postId, 0, Constants.POST_FOCUS_CONTEXT_RADIUS, true);
 }
@@ -188,7 +136,10 @@ export function emitPostFocusEvent(postId, onSuccess) {
                 link += 'town-square';
             }
 
-            browserHistory.push('/error?message=' + encodeURIComponent(Utils.localizeMessage('permalink.error.access', 'Permalink belongs to a deleted message or to a channel to which you do not have access.')) + '&link=' + encodeURIComponent(link));
+            const message = encodeURIComponent(Utils.localizeMessage('permalink.error.access', 'Permalink belongs to a deleted message or to a channel to which you do not have access.'));
+            const title = encodeURIComponent(Utils.localizeMessage('permalink.error.title', 'Message Not Found'));
+
+            browserHistory.push('/error?message=' + message + '&title=' + title + '&link=' + encodeURIComponent(link));
         }
     );
 }
@@ -217,7 +168,8 @@ export function emitPostFocusRightHandSideFromSearch(post, isMentionSearch) {
                 type: ActionTypes.RECEIVED_POST_SELECTED,
                 postId: Utils.getRootId(post),
                 from_search: SearchStore.getSearchTerm(),
-                from_flagged_posts: SearchStore.getIsFlaggedPosts()
+                from_flagged_posts: SearchStore.getIsFlaggedPosts(),
+                from_pinned_posts: SearchStore.getIsPinnedPosts()
             });
 
             AppDispatcher.handleServerAction({
@@ -233,16 +185,7 @@ export function emitPostFocusRightHandSideFromSearch(post, isMentionSearch) {
 }
 
 export function emitLeaveTeam() {
-    Client.removeUserFromTeam(
-        TeamStore.getCurrentId(),
-        UserStore.getCurrentId(),
-        () => {
-            // DO nothing.  The websocket should cause a re-direct
-        },
-        (err) => {
-            AsyncClient.dispatchError(err, 'removeUserFromTeam');
-        }
-    );
+    removeUserFromTeam(TeamStore.getCurrentId(), UserStore.getCurrentId())(dispatch, getState);
 }
 
 export function emitLoadMorePostsEvent() {
@@ -378,9 +321,31 @@ export function emitPreferenceChangedEvent(preference) {
         preference
     });
 
-    if (preference.category === Constants.Preferences.CATEGORY_DIRECT_CHANNEL_SHOW) {
-        loadProfilesAndTeamMembersForDMSidebar();
+    if (addedNewDmUser(preference)) {
+        loadProfilesForSidebar();
     }
+}
+
+export function emitPreferencesChangedEvent(preferences) {
+    AppDispatcher.handleServerAction({
+        type: Constants.ActionTypes.RECEIVED_PREFERENCES,
+        preferences
+    });
+
+    if (preferences.findIndex(addedNewDmUser) !== -1) {
+        loadProfilesForSidebar();
+    }
+}
+
+function addedNewDmUser(preference) {
+    return preference.category === Constants.Preferences.CATEGORY_DIRECT_CHANNEL_SHOW && preference.value === 'true';
+}
+
+export function emitPreferencesDeletedEvent(preferences) {
+    AppDispatcher.handleServerAction({
+        type: Constants.ActionTypes.DELETED_PREFERENCES,
+        preferences
+    });
 }
 
 export function emitRemovePost(post) {
@@ -397,7 +362,7 @@ export function sendEphemeralPost(message, channelId) {
         user_id: '0',
         channel_id: channelId || ChannelStore.getCurrentId(),
         message,
-        type: Constants.POST_TYPE_EPHEMERAL,
+        type: Constants.PostTypes.EPHEMERAL,
         create_at: timestamp,
         update_at: timestamp,
         props: {}
@@ -414,7 +379,7 @@ export function newLocalizationSelected(locale) {
             translations: en
         });
     } else {
-        const localeInfo = I18n.getLanguageInfo(locale) || I18n.getLanguageInfo(global.window.mm_config.DefaultClientLocale);
+        const localeInfo = I18n.getLanguageInfo(locale);
 
         Client.getTranslations(
             localeInfo.url,
@@ -436,13 +401,23 @@ export function newLocalizationSelected(locale) {
     }
 }
 
+export function loadCurrentLocale() {
+    const user = UserStore.getCurrentUser();
+
+    if (user && user.locale) {
+        newLocalizationSelected(user.locale);
+    } else {
+        loadDefaultLocale();
+    }
+}
+
 export function loadDefaultLocale() {
-    const defaultLocale = global.window.mm_config.DefaultClientLocale;
-    let locale = global.window.mm_user ? global.window.mm_user.locale || defaultLocale : defaultLocale;
+    let locale = global.window.mm_config.DefaultClientLocale;
 
     if (!I18n.getLanguageInfo(locale)) {
         locale = 'en';
     }
+
     return newLocalizationSelected(locale);
 }
 
@@ -454,7 +429,9 @@ export function viewLoggedIn() {
 let lastTimeTypingSent = 0;
 export function emitLocalUserTypingEvent(channelId, parentId) {
     const t = Date.now();
-    if ((t - lastTimeTypingSent) > Constants.UPDATE_TYPING_MS) {
+    const membersInChannel = ChannelStore.getStats(channelId).member_count;
+
+    if (((t - lastTimeTypingSent) > global.window.mm_config.TimeBetweenUserTypingUpdatesMilliseconds) && membersInChannel < global.window.mm_config.MaxNotificationsPerChannel && global.window.mm_config.EnableUserTypingMessages === 'true') {
         WebSocketClient.userTyping(channelId, parentId);
         lastTimeTypingSent = t;
     }
@@ -487,18 +464,16 @@ export function emitUserLoggedOutEvent(redirectTo = '/', shouldSignalLogout = tr
 export function clientLogout(redirectTo = '/') {
     BrowserStore.clear();
     ErrorStore.clearLastError();
-    PreferenceStore.clear();
-    UserStore.clear();
-    TeamStore.clear();
     ChannelStore.clear();
     stopPeriodicStatusUpdates();
     WebsocketActions.close();
+    document.cookie = 'MMUSERID=;expires=Thu, 01 Jan 1970 00:00:01 GMT;';
     window.location.href = redirectTo;
 }
 
 export function emitSearchMentionsEvent(user) {
     let terms = '';
-    if (user.notify_props && user.notify_props.mention_keys) {
+    if (user.notify_props) {
         const termKeys = UserStore.getMentionKeys(user.id);
 
         if (termKeys.indexOf('@channel') !== -1) {
@@ -511,6 +486,8 @@ export function emitSearchMentionsEvent(user) {
 
         terms = termKeys.join(' ');
     }
+
+    trackEvent('api', 'api_posts_search_mention');
 
     AppDispatcher.handleServerAction({
         type: ActionTypes.RECEIVED_SEARCH_TERM,
@@ -568,7 +545,7 @@ export function redirectUserToDefaultTeam() {
         }
 
         if (myTeams.length > 0) {
-            myTeams = myTeams.sort((a, b) => a.display_name.localeCompare(b.display_name));
+            myTeams = myTeams.sort(sortTeamsByDisplayName);
             teamId = myTeams[0].id;
         }
     }
@@ -580,13 +557,13 @@ export function redirectUserToDefaultTeam() {
             redirect(teams[teamId].name, channel);
         } else if (channelId) {
             Client.setTeamId(teamId);
-            Client.getChannel(
-                channelId,
+            getChannelAndMyMember(channelId)(dispatch, getState).then(
                 (data) => {
-                    redirect(teams[teamId].name, data.channel.name);
-                },
-                () => {
-                    redirect(teams[teamId].name, 'town-square');
+                    if (data) {
+                        redirect(teams[teamId].name, data.channel.name);
+                    } else {
+                        redirect(teams[teamId].name, 'town-square');
+                    }
                 }
             );
         } else {
@@ -594,5 +571,33 @@ export function redirectUserToDefaultTeam() {
         }
     } else {
         browserHistory.push('/select_team');
+    }
+}
+
+requestOpenGraphMetadata.openGraphMetadataOnGoingRequests = {};  // Format: {<url>: true}
+export function requestOpenGraphMetadata(url) {
+    if (global.mm_config.EnableLinkPreviews !== 'true') {
+        return;
+    }
+
+    const onself = requestOpenGraphMetadata;
+
+    if (!onself.openGraphMetadataOnGoingRequests[url]) {
+        onself.openGraphMetadataOnGoingRequests[url] = true;
+
+        Client.getOpenGraphMetadata(url,
+            (data) => {
+                AppDispatcher.handleServerAction({
+                    type: ActionTypes.RECIVED_OPEN_GRAPH_METADATA,
+                    url,
+                    data
+                });
+                delete onself.openGraphMetadataOnGoingRequests[url];
+            },
+            (err) => {
+                AsyncClient.dispatchError(err, 'getOpenGraphMetadata');
+                delete onself.openGraphMetadataOnGoingRequests[url];
+            }
+        );
     }
 }

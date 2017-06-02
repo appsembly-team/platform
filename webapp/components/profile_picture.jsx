@@ -1,9 +1,12 @@
-// Copyright (c) 2016 Mattermost, Inc. All Rights Reserved.
+// Copyright (c) 2016-present Mattermost, Inc. All Rights Reserved.
 // See License.txt for license information.
 import ProfilePopover from './profile_popover.jsx';
 import * as Utils from 'utils/utils.jsx';
 
+import PropTypes from 'prop-types';
+
 import React from 'react';
+import StatusIcon from './status_icon.jsx';
 import {OverlayTrigger} from 'react-bootstrap';
 
 export default class ProfilePicture extends React.Component {
@@ -45,10 +48,6 @@ export default class ProfilePicture extends React.Component {
     }
 
     render() {
-        let statusClass = '';
-        if (this.props.status) {
-            statusClass = 'status-' + this.props.status;
-        }
         if (this.props.user) {
             return (
                 <OverlayTrigger
@@ -66,25 +65,27 @@ export default class ProfilePicture extends React.Component {
                         />
                 }
                 >
-                    <span className={`status-wrapper ${statusClass}`}>
+                    <span className='status-wrapper'>
                         <img
                             className='more-modal__image'
                             width={this.props.width}
                             height={this.props.width}
                             src={this.props.src}
                         />
+                        <StatusIcon status={this.props.status}/>
                     </span>
                 </OverlayTrigger>
             );
         }
         return (
-            <span className={`status-wrapper ${statusClass}`}>
+            <span className='status-wrapper'>
                 <img
                     className='more-modal__image'
                     width={this.props.width}
                     height={this.props.width}
                     src={this.props.src}
                 />
+                <StatusIcon status={this.props.status}/>
             </span>
         );
     }
@@ -95,10 +96,10 @@ ProfilePicture.defaultProps = {
     height: '36'
 };
 ProfilePicture.propTypes = {
-    src: React.PropTypes.string.isRequired,
-    status: React.PropTypes.string,
-    width: React.PropTypes.string,
-    height: React.PropTypes.string,
-    user: React.PropTypes.object,
-    isBusy: React.PropTypes.bool
+    src: PropTypes.string.isRequired,
+    status: PropTypes.string,
+    width: PropTypes.string,
+    height: PropTypes.string,
+    user: PropTypes.object,
+    isBusy: PropTypes.bool
 };

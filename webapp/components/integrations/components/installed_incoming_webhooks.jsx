@@ -1,4 +1,4 @@
-// Copyright (c) 2016 Mattermost, Inc. All Rights Reserved.
+// Copyright (c) 2016-present Mattermost, Inc. All Rights Reserved.
 // See License.txt for license information.
 
 import BackstageList from 'components/backstage/components/backstage_list.jsx';
@@ -14,15 +14,17 @@ import {loadIncomingHooks} from 'actions/integration_actions.jsx';
 import * as AsyncClient from 'utils/async_client.jsx';
 import * as Utils from 'utils/utils.jsx';
 
+import PropTypes from 'prop-types';
+
 import React from 'react';
 import {FormattedMessage} from 'react-intl';
 
 export default class InstalledIncomingWebhooks extends React.Component {
     static get propTypes() {
         return {
-            team: React.PropTypes.object,
-            user: React.PropTypes.object,
-            isAdmin: React.PropTypes.bool
+            team: PropTypes.object,
+            user: PropTypes.object,
+            isAdmin: PropTypes.bool
         };
     }
 
@@ -110,6 +112,7 @@ export default class InstalledIncomingWebhooks extends React.Component {
                     onDelete={this.deleteIncomingWebhook}
                     creator={this.state.users[incomingWebhook.user_id] || {}}
                     canChange={canChange}
+                    team={this.props.team}
                 />
             );
         });

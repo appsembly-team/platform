@@ -1,4 +1,4 @@
-// Copyright (c) 2015 Mattermost, Inc. All Rights Reserved.
+// Copyright (c) 2015-present Mattermost, Inc. All Rights Reserved.
 // See License.txt for license information.
 
 import ProfilePopover from './profile_popover.jsx';
@@ -6,6 +6,8 @@ import * as Utils from 'utils/utils.jsx';
 import Client from 'client/web_client.jsx';
 
 import {OverlayTrigger} from 'react-bootstrap';
+
+import PropTypes from 'prop-types';
 
 import React from 'react';
 
@@ -85,7 +87,6 @@ export default class UserProfile extends React.Component {
             >
                 <div
                     className='user-popover'
-                    id={'profile_' + this.uniqueId}
                 >
                     {name}
                 </div>
@@ -101,11 +102,11 @@ UserProfile.defaultProps = {
     disablePopover: false
 };
 UserProfile.propTypes = {
-    user: React.PropTypes.object,
-    overwriteName: React.PropTypes.string,
-    overwriteImage: React.PropTypes.string,
-    disablePopover: React.PropTypes.bool,
-    displayNameType: React.PropTypes.string,
-    status: React.PropTypes.string,
-    isBusy: React.PropTypes.bool
+    user: PropTypes.object,
+    overwriteName: PropTypes.node,
+    overwriteImage: PropTypes.string,
+    disablePopover: PropTypes.bool,
+    displayNameType: PropTypes.string,
+    status: PropTypes.string,
+    isBusy: PropTypes.bool
 };

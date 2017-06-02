@@ -1,4 +1,6 @@
-// Copyright (c) 2016 Mattermost, Inc. All Rights Reserved.
+import PropTypes from 'prop-types';
+
+// Copyright (c) 2016-present Mattermost, Inc. All Rights Reserved.
 // See License.txt for license information.
 
 import React from 'react';
@@ -12,6 +14,8 @@ import BrowserStore from 'stores/browser_store.jsx';
 import * as AsyncClient from 'utils/async_client.jsx';
 import Client from 'client/web_client.jsx';
 import * as GlobalActions from 'actions/global_actions.jsx';
+import {addUserToTeamFromInvite, getInviteInfo} from 'actions/team_actions.jsx';
+import {loadMe} from 'actions/user_actions.jsx';
 
 import logoImage from 'images/logo.png';
 import ErrorBar from 'components/error_bar.jsx';
@@ -68,12 +72,12 @@ export default class SignupController extends React.Component {
             const userLoggedIn = UserStore.getCurrentUser() != null;
 
             if ((inviteId || hash) && userLoggedIn) {
-                Client.addUserToTeamFromInvite(
+                addUserToTeamFromInvite(
                     data,
                     hash,
                     inviteId,
                     (team) => {
-                        GlobalActions.emitInitialLoad(
+                        loadMe(
                             () => {
                                 browserHistory.push('/' + team.name + '/channels/town-square');
                             }
@@ -97,7 +101,7 @@ export default class SignupController extends React.Component {
             }
 
             if (inviteId) {
-                Client.getInviteInfo(
+                getInviteInfo(
                     inviteId,
                     (inviteData) => {
                         if (!inviteData) {
@@ -142,9 +146,8 @@ export default class SignupController extends React.Component {
                     key='email'
                     to={'/signup_email' + window.location.search}
                 >
-
-                    <span className='icon fa fa-envelope'/>
                     <span>
+                        <span className='icon fa fa-envelope'/>
                         <FormattedMessage
                             id='signup.email'
                             defaultMessage='Email and Password'
@@ -161,12 +164,14 @@ export default class SignupController extends React.Component {
                     key='gitlab'
                     href={Client.getOAuthRoute() + '/gitlab/signup' + window.location.search}
                 >
-                    <span className='icon'/>
                     <span>
-                        <FormattedMessage
-                            id='signup.gitlab'
-                            defaultMessage='GitLab Single-Sign-On'
-                        />
+                        <span className='icon'/>
+                        <span>
+                            <FormattedMessage
+                                id='signup.gitlab'
+                                defaultMessage='GitLab Single-Sign-On'
+                            />
+                        </span>
                     </span>
                 </a>
             );
@@ -179,12 +184,14 @@ export default class SignupController extends React.Component {
                     key='google'
                     href={Client.getOAuthRoute() + '/google/signup' + window.location.search}
                 >
-                    <span className='icon'/>
                     <span>
-                        <FormattedMessage
-                            id='signup.google'
-                            defaultMessage='Google Account'
-                        />
+                        <span className='icon'/>
+                        <span>
+                            <FormattedMessage
+                                id='signup.google'
+                                defaultMessage='Google Account'
+                            />
+                        </span>
                     </span>
                 </a>
             );
@@ -197,12 +204,14 @@ export default class SignupController extends React.Component {
                     key='office365'
                     href={Client.getOAuthRoute() + '/office365/signup' + window.location.search}
                 >
-                    <span className='icon'/>
                     <span>
-                        <FormattedMessage
-                            id='signup.office365'
-                            defaultMessage='Office 365'
-                        />
+                        <span className='icon'/>
+                        <span>
+                            <FormattedMessage
+                                id='signup.office365'
+                                defaultMessage='Office 365'
+                            />
+                        </span>
                     </span>
                 </a>
            );
@@ -215,12 +224,14 @@ export default class SignupController extends React.Component {
                     key='ldap'
                     to={'/signup_ldap' + window.location.search}
                 >
-                    <span className='icon fa fa-folder-open fa--margin-top'/>
                     <span>
-                        <FormattedMessage
-                            id='signup.ldap'
-                            defaultMessage='AD/LDAP Credentials'
-                        />
+                        <span className='icon fa fa-folder-open fa--margin-top'/>
+                        <span>
+                            <FormattedMessage
+                                id='signup.ldap'
+                                defaultMessage='AD/LDAP Credentials'
+                            />
+                        </span>
                     </span>
                 </Link>
             );
@@ -240,9 +251,11 @@ export default class SignupController extends React.Component {
                     key='saml'
                     href={'/login/sso/saml' + window.location.search + query}
                 >
-                    <span className='icon fa fa-lock fa--margin-top'/>
                     <span>
-                        {global.window.mm_config.SamlLoginButtonText}
+                        <span className='icon fa fa-lock fa--margin-top'/>
+                        <span>
+                            {global.window.mm_config.SamlLoginButtonText}
+                        </span>
                     </span>
                 </a>
             );
@@ -265,7 +278,7 @@ export default class SignupController extends React.Component {
             if (global.window.mm_config.EnableSignUpWithEmail === 'true') {
                 return browserHistory.push('/signup_email' + window.location.search);
             } else if (global.window.mm_license.IsLicensed === 'true' && global.window.mm_config.EnableLdap === 'true') {
-                return browserHistory.push('/signup_ldap');
+                return browserHistory.push('/signup_ldap' + window.location.search);
             }
         }
 
@@ -339,6 +352,22 @@ export default class SignupController extends React.Component {
                             {signupControls}
                             {serverError}
                         </div>
+                        <span className='color--light'>
+                            <FormattedMessage
+                                id='signup_user_completed.haveAccount'
+                                defaultMessage='Already have an account?'
+                            />
+                            {' '}
+                            <Link
+                                to={'/login'}
+                                query={this.props.location.query}
+                            >
+                                <FormattedMessage
+                                    id='signup_user_completed.signIn'
+                                    defaultMessage='Click here to sign in.'
+                                />
+                            </Link>
+                        </span>
                     </div>
                 </div>
             </div>
@@ -347,5 +376,5 @@ export default class SignupController extends React.Component {
 }
 
 SignupController.propTypes = {
-    location: React.PropTypes.object
+    location: PropTypes.object
 };

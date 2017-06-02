@@ -1,4 +1,4 @@
-// Copyright (c) 2015 Mattermost, Inc. All Rights Reserved.
+// Copyright (c) 2015-present Mattermost, Inc. All Rights Reserved.
 // See License.txt for license information.
 
 package store
@@ -24,9 +24,9 @@ import (
 
 	l4g "github.com/alecthomas/log4go"
 
-	"github.com/go-gorp/gorp"
 	_ "github.com/go-sql-driver/mysql"
 	_ "github.com/lib/pq"
+	"github.com/mattermost/gorp"
 	"github.com/mattermost/platform/model"
 	"github.com/mattermost/platform/utils"
 )
@@ -34,7 +34,7 @@ import (
 const (
 	INDEX_TYPE_FULL_TEXT = "full_text"
 	INDEX_TYPE_DEFAULT   = "default"
-	MAX_DB_CONN_LIFETIME = 15
+	MAX_DB_CONN_LIFETIME = 60
 )
 
 const (
@@ -62,36 +62,41 @@ const (
 	EXIT_REMOVE_INDEX_POSTGRES       = 121
 	EXIT_REMOVE_INDEX_MYSQL          = 122
 	EXIT_REMOVE_INDEX_MISSING        = 123
+	EXIT_REMOVE_TABLE                = 134
 )
 
 type SqlStore struct {
-	master        *gorp.DbMap
-	replicas      []*gorp.DbMap
-	team          TeamStore
-	channel       ChannelStore
-	post          PostStore
-	user          UserStore
-	audit         AuditStore
-	compliance    ComplianceStore
-	session       SessionStore
-	oauth         OAuthStore
-	system        SystemStore
-	webhook       WebhookStore
-	command       CommandStore
-	preference    PreferenceStore
-	license       LicenseStore
-	recovery      PasswordRecoveryStore
-	emoji         EmojiStore
-	status        StatusStore
-	fileInfo      FileInfoStore
-	reaction      ReactionStore
-	SchemaVersion string
-	rrCounter     int64
+	master         *gorp.DbMap
+	replicas       []*gorp.DbMap
+	searchReplicas []*gorp.DbMap
+	team           TeamStore
+	channel        ChannelStore
+	post           PostStore
+	user           UserStore
+	audit          AuditStore
+	compliance     ComplianceStore
+	session        SessionStore
+	oauth          OAuthStore
+	system         SystemStore
+	webhook        WebhookStore
+	command        CommandStore
+	preference     PreferenceStore
+	license        LicenseStore
+	token          TokenStore
+	emoji          EmojiStore
+	status         StatusStore
+	fileInfo       FileInfoStore
+	reaction       ReactionStore
+	jobStatus      JobStatusStore
+	SchemaVersion  string
+	rrCounter      int64
+	srCounter      int64
 }
 
 func initConnection() *SqlStore {
 	sqlStore := &SqlStore{
 		rrCounter: 0,
+		srCounter: 0,
 	}
 
 	sqlStore.master = setupConnection("master", utils.Cfg.SqlSettings.DriverName,
@@ -105,6 +110,17 @@ func initConnection() *SqlStore {
 		sqlStore.replicas = make([]*gorp.DbMap, len(utils.Cfg.SqlSettings.DataSourceReplicas))
 		for i, replica := range utils.Cfg.SqlSettings.DataSourceReplicas {
 			sqlStore.replicas[i] = setupConnection(fmt.Sprintf("replica-%v", i), utils.Cfg.SqlSettings.DriverName, replica,
+				utils.Cfg.SqlSettings.MaxIdleConns, utils.Cfg.SqlSettings.MaxOpenConns,
+				utils.Cfg.SqlSettings.Trace)
+		}
+	}
+
+	if len(utils.Cfg.SqlSettings.DataSourceSearchReplicas) == 0 {
+		sqlStore.searchReplicas = sqlStore.replicas
+	} else {
+		sqlStore.searchReplicas = make([]*gorp.DbMap, len(utils.Cfg.SqlSettings.DataSourceSearchReplicas))
+		for i, replica := range utils.Cfg.SqlSettings.DataSourceSearchReplicas {
+			sqlStore.searchReplicas[i] = setupConnection(fmt.Sprintf("search-replica-%v", i), utils.Cfg.SqlSettings.DriverName, replica,
 				utils.Cfg.SqlSettings.MaxIdleConns, utils.Cfg.SqlSettings.MaxOpenConns,
 				utils.Cfg.SqlSettings.Trace)
 		}
@@ -131,11 +147,12 @@ func NewSqlStore() Store {
 	sqlStore.command = NewSqlCommandStore(sqlStore)
 	sqlStore.preference = NewSqlPreferenceStore(sqlStore)
 	sqlStore.license = NewSqlLicenseStore(sqlStore)
-	sqlStore.recovery = NewSqlPasswordRecoveryStore(sqlStore)
+	sqlStore.token = NewSqlTokenStore(sqlStore)
 	sqlStore.emoji = NewSqlEmojiStore(sqlStore)
 	sqlStore.status = NewSqlStatusStore(sqlStore)
 	sqlStore.fileInfo = NewSqlFileInfoStore(sqlStore)
 	sqlStore.reaction = NewSqlReactionStore(sqlStore)
+	sqlStore.jobStatus = NewSqlJobStatusStore(sqlStore)
 
 	err := sqlStore.master.CreateTablesIfNotExists()
 	if err != nil {
@@ -159,11 +176,12 @@ func NewSqlStore() Store {
 	sqlStore.command.(*SqlCommandStore).CreateIndexesIfNotExists()
 	sqlStore.preference.(*SqlPreferenceStore).CreateIndexesIfNotExists()
 	sqlStore.license.(*SqlLicenseStore).CreateIndexesIfNotExists()
-	sqlStore.recovery.(*SqlPasswordRecoveryStore).CreateIndexesIfNotExists()
+	sqlStore.token.(*SqlTokenStore).CreateIndexesIfNotExists()
 	sqlStore.emoji.(*SqlEmojiStore).CreateIndexesIfNotExists()
 	sqlStore.status.(*SqlStatusStore).CreateIndexesIfNotExists()
 	sqlStore.fileInfo.(*SqlFileInfoStore).CreateIndexesIfNotExists()
 	sqlStore.reaction.(*SqlReactionStore).CreateIndexesIfNotExists()
+	sqlStore.jobStatus.(*SqlJobStatusStore).CreateIndexesIfNotExists()
 
 	sqlStore.preference.(*SqlPreferenceStore).DeleteUnusedFeatures()
 
@@ -193,12 +211,14 @@ func setupConnection(con_type string, driver string, dataSource string, maxIdle 
 
 	var dbmap *gorp.DbMap
 
+	connectionTimeout := time.Duration(*utils.Cfg.SqlSettings.QueryTimeout) * time.Second
+
 	if driver == "sqlite3" {
-		dbmap = &gorp.DbMap{Db: db, TypeConverter: mattermConverter{}, Dialect: gorp.SqliteDialect{}}
+		dbmap = &gorp.DbMap{Db: db, TypeConverter: mattermConverter{}, Dialect: gorp.SqliteDialect{}, QueryTimeout: connectionTimeout}
 	} else if driver == model.DATABASE_DRIVER_MYSQL {
-		dbmap = &gorp.DbMap{Db: db, TypeConverter: mattermConverter{}, Dialect: gorp.MySQLDialect{Engine: "InnoDB", Encoding: "UTF8MB4"}}
+		dbmap = &gorp.DbMap{Db: db, TypeConverter: mattermConverter{}, Dialect: gorp.MySQLDialect{Engine: "InnoDB", Encoding: "UTF8MB4"}, QueryTimeout: connectionTimeout}
 	} else if driver == model.DATABASE_DRIVER_POSTGRES {
-		dbmap = &gorp.DbMap{Db: db, TypeConverter: mattermConverter{}, Dialect: gorp.PostgresDialect{}}
+		dbmap = &gorp.DbMap{Db: db, TypeConverter: mattermConverter{}, Dialect: gorp.PostgresDialect{}, QueryTimeout: connectionTimeout}
 	} else {
 		l4g.Critical(utils.T("store.sql.dialect_driver.critical"))
 		time.Sleep(time.Second)
@@ -220,16 +240,27 @@ func (ss *SqlStore) TotalReadDbConnections() int {
 
 	if len(utils.Cfg.SqlSettings.DataSourceReplicas) == 0 {
 		return 0
-	} else {
-		count := 0
-		for _, db := range ss.replicas {
-			count = count + db.Db.Stats().OpenConnections
-		}
-
-		return count
 	}
 
-	return 0
+	count := 0
+	for _, db := range ss.replicas {
+		count = count + db.Db.Stats().OpenConnections
+	}
+
+	return count
+}
+
+func (ss *SqlStore) TotalSearchDbConnections() int {
+	if len(utils.Cfg.SqlSettings.DataSourceSearchReplicas) == 0 {
+		return 0
+	}
+
+	count := 0
+	for _, db := range ss.searchReplicas {
+		count = count + db.Db.Stats().OpenConnections
+	}
+
+	return count
 }
 
 func (ss *SqlStore) GetCurrentSchemaVersion() string {
@@ -355,7 +386,7 @@ func (ss *SqlStore) CreateColumnIfNotExists(tableName string, columnName string,
 	}
 
 	if utils.Cfg.SqlSettings.DriverName == model.DATABASE_DRIVER_POSTGRES {
-		_, err := ss.GetMaster().Exec("ALTER TABLE " + tableName + " ADD " + columnName + " " + postgresColType + " DEFAULT '" + defaultValue + "'")
+		_, err := ss.GetMaster().ExecNoTimeout("ALTER TABLE " + tableName + " ADD " + columnName + " " + postgresColType + " DEFAULT '" + defaultValue + "'")
 		if err != nil {
 			l4g.Critical(utils.T("store.sql.create_column.critical"), err)
 			time.Sleep(time.Second)
@@ -365,7 +396,7 @@ func (ss *SqlStore) CreateColumnIfNotExists(tableName string, columnName string,
 		return true
 
 	} else if utils.Cfg.SqlSettings.DriverName == model.DATABASE_DRIVER_MYSQL {
-		_, err := ss.GetMaster().Exec("ALTER TABLE " + tableName + " ADD " + columnName + " " + mySqlColType + " DEFAULT '" + defaultValue + "'")
+		_, err := ss.GetMaster().ExecNoTimeout("ALTER TABLE " + tableName + " ADD " + columnName + " " + mySqlColType + " DEFAULT '" + defaultValue + "'")
 		if err != nil {
 			l4g.Critical(utils.T("store.sql.create_column.critical"), err)
 			time.Sleep(time.Second)
@@ -388,11 +419,26 @@ func (ss *SqlStore) RemoveColumnIfExists(tableName string, columnName string) bo
 		return false
 	}
 
-	_, err := ss.GetMaster().Exec("ALTER TABLE " + tableName + " DROP COLUMN " + columnName)
+	_, err := ss.GetMaster().ExecNoTimeout("ALTER TABLE " + tableName + " DROP COLUMN " + columnName)
 	if err != nil {
-		l4g.Critical(utils.T("store.sql.drop_column.critical"), err)
+		l4g.Critical("Failed to drop column %v", err)
 		time.Sleep(time.Second)
 		os.Exit(EXIT_REMOVE_COLUMN)
+	}
+
+	return true
+}
+
+func (ss *SqlStore) RemoveTableIfExists(tableName string) bool {
+	if !ss.DoesTableExist(tableName) {
+		return false
+	}
+
+	_, err := ss.GetMaster().ExecNoTimeout("DROP TABLE " + tableName)
+	if err != nil {
+		l4g.Critical("Failed to drop table %v", err)
+		time.Sleep(time.Second)
+		os.Exit(EXIT_REMOVE_TABLE)
 	}
 
 	return true
@@ -405,9 +451,9 @@ func (ss *SqlStore) RenameColumnIfExists(tableName string, oldColumnName string,
 
 	var err error
 	if utils.Cfg.SqlSettings.DriverName == model.DATABASE_DRIVER_MYSQL {
-		_, err = ss.GetMaster().Exec("ALTER TABLE " + tableName + " CHANGE " + oldColumnName + " " + newColumnName + " " + colType)
+		_, err = ss.GetMaster().ExecNoTimeout("ALTER TABLE " + tableName + " CHANGE " + oldColumnName + " " + newColumnName + " " + colType)
 	} else if utils.Cfg.SqlSettings.DriverName == model.DATABASE_DRIVER_POSTGRES {
-		_, err = ss.GetMaster().Exec("ALTER TABLE " + tableName + " RENAME COLUMN " + oldColumnName + " TO " + newColumnName)
+		_, err = ss.GetMaster().ExecNoTimeout("ALTER TABLE " + tableName + " RENAME COLUMN " + oldColumnName + " TO " + newColumnName)
 	}
 
 	if err != nil {
@@ -448,9 +494,9 @@ func (ss *SqlStore) AlterColumnTypeIfExists(tableName string, columnName string,
 
 	var err error
 	if utils.Cfg.SqlSettings.DriverName == model.DATABASE_DRIVER_MYSQL {
-		_, err = ss.GetMaster().Exec("ALTER TABLE " + tableName + " MODIFY " + columnName + " " + mySqlColType)
+		_, err = ss.GetMaster().ExecNoTimeout("ALTER TABLE " + tableName + " MODIFY " + columnName + " " + mySqlColType)
 	} else if utils.Cfg.SqlSettings.DriverName == model.DATABASE_DRIVER_POSTGRES {
-		_, err = ss.GetMaster().Exec("ALTER TABLE " + strings.ToLower(tableName) + " ALTER COLUMN " + strings.ToLower(columnName) + " TYPE " + postgresColType)
+		_, err = ss.GetMaster().ExecNoTimeout("ALTER TABLE " + strings.ToLower(tableName) + " ALTER COLUMN " + strings.ToLower(columnName) + " TYPE " + postgresColType)
 	}
 
 	if err != nil {
@@ -462,19 +508,19 @@ func (ss *SqlStore) AlterColumnTypeIfExists(tableName string, columnName string,
 	return true
 }
 
-func (ss *SqlStore) CreateUniqueIndexIfNotExists(indexName string, tableName string, columnName string) {
-	ss.createIndexIfNotExists(indexName, tableName, columnName, INDEX_TYPE_DEFAULT, true)
+func (ss *SqlStore) CreateUniqueIndexIfNotExists(indexName string, tableName string, columnName string) bool {
+	return ss.createIndexIfNotExists(indexName, tableName, columnName, INDEX_TYPE_DEFAULT, true)
 }
 
-func (ss *SqlStore) CreateIndexIfNotExists(indexName string, tableName string, columnName string) {
-	ss.createIndexIfNotExists(indexName, tableName, columnName, INDEX_TYPE_DEFAULT, false)
+func (ss *SqlStore) CreateIndexIfNotExists(indexName string, tableName string, columnName string) bool {
+	return ss.createIndexIfNotExists(indexName, tableName, columnName, INDEX_TYPE_DEFAULT, false)
 }
 
-func (ss *SqlStore) CreateFullTextIndexIfNotExists(indexName string, tableName string, columnName string) {
-	ss.createIndexIfNotExists(indexName, tableName, columnName, INDEX_TYPE_FULL_TEXT, false)
+func (ss *SqlStore) CreateFullTextIndexIfNotExists(indexName string, tableName string, columnName string) bool {
+	return ss.createIndexIfNotExists(indexName, tableName, columnName, INDEX_TYPE_FULL_TEXT, false)
 }
 
-func (ss *SqlStore) createIndexIfNotExists(indexName string, tableName string, columnName string, indexType string, unique bool) {
+func (ss *SqlStore) createIndexIfNotExists(indexName string, tableName string, columnName string, indexType string, unique bool) bool {
 
 	uniqueStr := ""
 	if unique {
@@ -485,7 +531,7 @@ func (ss *SqlStore) createIndexIfNotExists(indexName string, tableName string, c
 		_, err := ss.GetMaster().SelectStr("SELECT $1::regclass", indexName)
 		// It should fail if the index does not exist
 		if err == nil {
-			return
+			return false
 		}
 
 		query := ""
@@ -496,7 +542,7 @@ func (ss *SqlStore) createIndexIfNotExists(indexName string, tableName string, c
 			query = "CREATE " + uniqueStr + "INDEX " + indexName + " ON " + tableName + " (" + columnName + ")"
 		}
 
-		_, err = ss.GetMaster().Exec(query)
+		_, err = ss.GetMaster().ExecNoTimeout(query)
 		if err != nil {
 			l4g.Critical(utils.T("store.sql.create_index.critical"), err)
 			time.Sleep(time.Second)
@@ -512,7 +558,7 @@ func (ss *SqlStore) createIndexIfNotExists(indexName string, tableName string, c
 		}
 
 		if count > 0 {
-			return
+			return false
 		}
 
 		fullTextIndex := ""
@@ -520,7 +566,7 @@ func (ss *SqlStore) createIndexIfNotExists(indexName string, tableName string, c
 			fullTextIndex = " FULLTEXT "
 		}
 
-		_, err = ss.GetMaster().Exec("CREATE  " + uniqueStr + fullTextIndex + " INDEX " + indexName + " ON " + tableName + " (" + columnName + ")")
+		_, err = ss.GetMaster().ExecNoTimeout("CREATE  " + uniqueStr + fullTextIndex + " INDEX " + indexName + " ON " + tableName + " (" + columnName + ")")
 		if err != nil {
 			l4g.Critical(utils.T("store.sql.create_index.critical"), err)
 			time.Sleep(time.Second)
@@ -531,23 +577,27 @@ func (ss *SqlStore) createIndexIfNotExists(indexName string, tableName string, c
 		time.Sleep(time.Second)
 		os.Exit(EXIT_CREATE_INDEX_MISSING)
 	}
+
+	return true
 }
 
-func (ss *SqlStore) RemoveIndexIfExists(indexName string, tableName string) {
+func (ss *SqlStore) RemoveIndexIfExists(indexName string, tableName string) bool {
 
 	if utils.Cfg.SqlSettings.DriverName == model.DATABASE_DRIVER_POSTGRES {
 		_, err := ss.GetMaster().SelectStr("SELECT $1::regclass", indexName)
 		// It should fail if the index does not exist
-		if err == nil {
-			return
+		if err != nil {
+			return false
 		}
 
-		_, err = ss.GetMaster().Exec("DROP INDEX " + indexName)
+		_, err = ss.GetMaster().ExecNoTimeout("DROP INDEX " + indexName)
 		if err != nil {
 			l4g.Critical(utils.T("store.sql.remove_index.critical"), err)
 			time.Sleep(time.Second)
 			os.Exit(EXIT_REMOVE_INDEX_POSTGRES)
 		}
+
+		return true
 	} else if utils.Cfg.SqlSettings.DriverName == model.DATABASE_DRIVER_MYSQL {
 
 		count, err := ss.GetMaster().SelectInt("SELECT COUNT(0) AS index_exists FROM information_schema.statistics WHERE TABLE_SCHEMA = DATABASE() and table_name = ? AND index_name = ?", tableName, indexName)
@@ -557,11 +607,11 @@ func (ss *SqlStore) RemoveIndexIfExists(indexName string, tableName string) {
 			os.Exit(EXIT_REMOVE_INDEX_MYSQL)
 		}
 
-		if count > 0 {
-			return
+		if count <= 0 {
+			return false
 		}
 
-		_, err = ss.GetMaster().Exec("DROP INDEX " + indexName + " ON " + tableName)
+		_, err = ss.GetMaster().ExecNoTimeout("DROP INDEX " + indexName + " ON " + tableName)
 		if err != nil {
 			l4g.Critical(utils.T("store.sql.remove_index.critical"), err)
 			time.Sleep(time.Second)
@@ -572,6 +622,8 @@ func (ss *SqlStore) RemoveIndexIfExists(indexName string, tableName string) {
 		time.Sleep(time.Second)
 		os.Exit(EXIT_REMOVE_INDEX_MISSING)
 	}
+
+	return true
 }
 
 func IsUniqueConstraintError(err string, indexName []string) bool {
@@ -589,6 +641,11 @@ func IsUniqueConstraintError(err string, indexName []string) bool {
 
 func (ss *SqlStore) GetMaster() *gorp.DbMap {
 	return ss.master
+}
+
+func (ss *SqlStore) GetSearchReplica() *gorp.DbMap {
+	rrNum := atomic.AddInt64(&ss.srCounter, 1) % int64(len(ss.searchReplicas))
+	return ss.searchReplicas[rrNum]
 }
 
 func (ss *SqlStore) GetReplica() *gorp.DbMap {
@@ -663,8 +720,8 @@ func (ss *SqlStore) License() LicenseStore {
 	return ss.license
 }
 
-func (ss *SqlStore) PasswordRecovery() PasswordRecoveryStore {
-	return ss.recovery
+func (ss *SqlStore) Token() TokenStore {
+	return ss.token
 }
 
 func (ss *SqlStore) Emoji() EmojiStore {
@@ -681,6 +738,10 @@ func (ss *SqlStore) FileInfo() FileInfoStore {
 
 func (ss *SqlStore) Reaction() ReactionStore {
 	return ss.reaction
+}
+
+func (ss *SqlStore) JobStatus() JobStatusStore {
+	return ss.jobStatus
 }
 
 func (ss *SqlStore) DropAllTables() {
@@ -700,6 +761,8 @@ func (me mattermConverter) ToDb(val interface{}) (interface{}, error) {
 		return encrypt([]byte(utils.Cfg.SqlSettings.AtRestEncryptKey), model.MapToJson(t))
 	case model.StringInterface:
 		return model.StringInterfaceToJson(t), nil
+	case map[string]interface{}:
+		return model.StringInterfaceToJson(model.StringInterface(t)), nil
 	}
 
 	return val, nil
@@ -716,7 +779,7 @@ func (me mattermConverter) FromDb(target interface{}) (gorp.CustomScanner, bool)
 			b := []byte(*s)
 			return json.Unmarshal(b, target)
 		}
-		return gorp.CustomScanner{new(string), target, binder}, true
+		return gorp.CustomScanner{Holder: new(string), Target: target, Binder: binder}, true
 	case *model.StringArray:
 		binder := func(holder, target interface{}) error {
 			s, ok := holder.(*string)
@@ -726,7 +789,7 @@ func (me mattermConverter) FromDb(target interface{}) (gorp.CustomScanner, bool)
 			b := []byte(*s)
 			return json.Unmarshal(b, target)
 		}
-		return gorp.CustomScanner{new(string), target, binder}, true
+		return gorp.CustomScanner{Holder: new(string), Target: target, Binder: binder}, true
 	case *model.EncryptStringMap:
 		binder := func(holder, target interface{}) error {
 			s, ok := holder.(*string)
@@ -742,7 +805,7 @@ func (me mattermConverter) FromDb(target interface{}) (gorp.CustomScanner, bool)
 			b := []byte(ue)
 			return json.Unmarshal(b, target)
 		}
-		return gorp.CustomScanner{new(string), target, binder}, true
+		return gorp.CustomScanner{Holder: new(string), Target: target, Binder: binder}, true
 	case *model.StringInterface:
 		binder := func(holder, target interface{}) error {
 			s, ok := holder.(*string)
@@ -752,7 +815,17 @@ func (me mattermConverter) FromDb(target interface{}) (gorp.CustomScanner, bool)
 			b := []byte(*s)
 			return json.Unmarshal(b, target)
 		}
-		return gorp.CustomScanner{new(string), target, binder}, true
+		return gorp.CustomScanner{Holder: new(string), Target: target, Binder: binder}, true
+	case *map[string]interface{}:
+		binder := func(holder, target interface{}) error {
+			s, ok := holder.(*string)
+			if !ok {
+				return errors.New(utils.T("store.sql.convert_string_interface"))
+			}
+			b := []byte(*s)
+			return json.Unmarshal(b, target)
+		}
+		return gorp.CustomScanner{Holder: new(string), Target: target, Binder: binder}, true
 	}
 
 	return gorp.CustomScanner{}, false

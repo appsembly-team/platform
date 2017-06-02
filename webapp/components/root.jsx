@@ -1,4 +1,4 @@
-// Copyright (c) 2016 Mattermost, Inc. All Rights Reserved.
+// Copyright (c) 2016-present Mattermost, Inc. All Rights Reserved.
 // See License.txt for license information.
 
 import * as GlobalActions from 'actions/global_actions.jsx';
@@ -7,6 +7,8 @@ import Client from 'client/web_client.jsx';
 
 import {IntlProvider} from 'react-intl';
 
+import PropTypes from 'prop-types';
+
 import React from 'react';
 import FastClick from 'fastclick';
 import $ from 'jquery';
@@ -14,24 +16,40 @@ import $ from 'jquery';
 import {browserHistory} from 'react-router/es6';
 import UserStore from 'stores/user_store.jsx';
 import BrowserStore from 'stores/browser_store.jsx';
+import Constants from 'utils/constants.jsx';
 
 export default class Root extends React.Component {
     constructor(props) {
         super(props);
         this.state = {
-            locale: 'en',
-            translations: null
+            locale: LocalizationStore.getLocale(),
+            translations: LocalizationStore.getTranslations()
         };
 
         this.localizationChanged = this.localizationChanged.bind(this);
         this.redirectIfNecessary = this.redirectIfNecessary.bind(this);
 
+        const segmentKey = Constants.DIAGNOSTICS_SEGMENT_KEY;
+
         // Ya....
         /*eslint-disable */
-        if (window.mm_config.SegmentDeveloperKey != null && window.mm_config.SegmentDeveloperKey !== "") {
+        if (segmentKey != null && segmentKey !== '' && window.mm_config.DiagnosticsEnabled === 'true') {
             !function(){var analytics=global.window.analytics=global.window.analytics||[];if(!analytics.initialize)if(analytics.invoked)window.console&&console.error&&console.error("Segment snippet included twice.");else{analytics.invoked=!0;analytics.methods=["trackSubmit","trackClick","trackLink","trackForm","pageview","identify","group","track","ready","alias","page","once","off","on"];analytics.factory=function(t){return function(){var e=Array.prototype.slice.call(arguments);e.unshift(t);analytics.push(e);return analytics}};for(var t=0;t<analytics.methods.length;t++){var e=analytics.methods[t];analytics[e]=analytics.factory(e)}analytics.load=function(t){var e=document.createElement("script");e.type="text/javascript";e.async=!0;e.src=("https:"===document.location.protocol?"https://":"http://")+"cdn.segment.com/analytics.js/v1/"+t+"/analytics.min.js";var n=document.getElementsByTagName("script")[0];n.parentNode.insertBefore(e,n)};analytics.SNIPPET_VERSION="3.0.1";
-                analytics.load(window.mm_config.SegmentDeveloperKey);
-                analytics.page();
+                analytics.load(segmentKey);
+
+                analytics.page('ApplicationLoaded', {
+                        path: '',
+                        referrer: '',
+                        search: '',
+                        title: '',
+                        url: '',
+                    },
+                    {
+                        context: {
+                            ip: '0.0.0.0'
+                        },
+                        anonymousId: '00000000000000000000000000'
+                    });
             }}();
         }
         /*eslint-enable */
@@ -78,7 +96,7 @@ export default class Root extends React.Component {
             } else if (UserStore.getCurrentUser()) {
                 GlobalActions.redirectUserToDefaultTeam();
             } else {
-                browserHistory.push('/login');
+                browserHistory.push('/login' + window.location.search);
             }
         }
     }
@@ -97,7 +115,7 @@ export default class Root extends React.Component {
         LocalizationStore.addChangeListener(this.localizationChanged);
 
         // Get our localizaiton
-        GlobalActions.loadDefaultLocale();
+        GlobalActions.loadCurrentLocale();
     }
 
     componentWillUnmount() {
@@ -120,9 +138,10 @@ export default class Root extends React.Component {
         );
     }
 }
+
 Root.defaultProps = {
 };
 
 Root.propTypes = {
-    children: React.PropTypes.object
+    children: PropTypes.object
 };

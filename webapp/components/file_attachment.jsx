@@ -1,4 +1,4 @@
-// Copyright (c) 2015 Mattermost, Inc. All Rights Reserved.
+// Copyright (c) 2015-present Mattermost, Inc. All Rights Reserved.
 // See License.txt for license information.
 
 import Constants from 'utils/constants.jsx';
@@ -6,6 +6,8 @@ import FileStore from 'stores/file_store.jsx';
 import * as Utils from 'utils/utils.jsx';
 
 import {Tooltip, OverlayTrigger} from 'react-bootstrap';
+
+import PropTypes from 'prop-types';
 
 import React from 'react';
 
@@ -172,13 +174,13 @@ export default class FileAttachment extends React.Component {
 }
 
 FileAttachment.propTypes = {
-    fileInfo: React.PropTypes.object.isRequired,
+    fileInfo: PropTypes.object.isRequired,
 
     // the index of this attachment preview in the parent FileAttachmentList
-    index: React.PropTypes.number.isRequired,
+    index: PropTypes.number.isRequired,
 
     // handler for when the thumbnail is clicked passed the index above
-    handleImageClick: React.PropTypes.func,
+    handleImageClick: PropTypes.func,
 
-    compactDisplay: React.PropTypes.bool
+    compactDisplay: PropTypes.bool
 };

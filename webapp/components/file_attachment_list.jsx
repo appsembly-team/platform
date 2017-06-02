@@ -1,9 +1,11 @@
-// Copyright (c) 2015 Mattermost, Inc. All Rights Reserved.
+// Copyright (c) 2015-present Mattermost, Inc. All Rights Reserved.
 // See License.txt for license information.
 
 import ViewImageModal from './view_image.jsx';
 import FileAttachment from './file_attachment.jsx';
 import Constants from 'utils/constants.jsx';
+
+import PropTypes from 'prop-types';
 
 import React from 'react';
 
@@ -50,7 +52,7 @@ export default class FileAttachmentList extends React.Component {
 
         return (
             <div>
-                <div className='post-image__columns'>
+                <div className='post-image__columns clearfix'>
                     {postFiles}
                 </div>
                 <ViewImageModal
@@ -65,7 +67,7 @@ export default class FileAttachmentList extends React.Component {
 }
 
 FileAttachmentList.propTypes = {
-    fileCount: React.PropTypes.number.isRequired,
-    fileInfos: React.PropTypes.arrayOf(React.PropTypes.object),
-    compactDisplay: React.PropTypes.bool
+    fileCount: PropTypes.number.isRequired,
+    fileInfos: PropTypes.arrayOf(PropTypes.object),
+    compactDisplay: PropTypes.bool
 };

@@ -1,4 +1,4 @@
-// Copyright (c) 2015 Mattermost, Inc. All Rights Reserved.
+// Copyright (c) 2015-present Mattermost, Inc. All Rights Reserved.
 // See License.txt for license information.
 
 import $ from 'jquery';
@@ -6,6 +6,7 @@ import $ from 'jquery';
 import UserStore from 'stores/user_store.jsx';
 import TeamStore from 'stores/team_store.jsx';
 import PostStore from 'stores/post_store.jsx';
+import PreferenceStore from 'stores/preference_store.jsx';
 import ChannelStore from 'stores/channel_store.jsx';
 import BrowserStore from 'stores/browser_store.jsx';
 import ErrorStore from 'stores/error_store.jsx';
@@ -17,16 +18,26 @@ import WebSocketClient from 'client/web_websocket_client.jsx';
 import * as WebrtcActions from './webrtc_actions.jsx';
 import * as Utils from 'utils/utils.jsx';
 import * as AsyncClient from 'utils/async_client.jsx';
+import {getSiteURL} from 'utils/url.jsx';
 
 import * as GlobalActions from 'actions/global_actions.jsx';
 import {handleNewPost, loadPosts, loadProfilesForPosts} from 'actions/post_actions.jsx';
-import {loadProfilesAndTeamMembersForDMSidebar} from 'actions/user_actions.jsx';
+import {loadProfilesForSidebar} from 'actions/user_actions.jsx';
 import {loadChannelsForCurrentUser} from 'actions/channel_actions.jsx';
 import * as StatusActions from 'actions/status_actions.jsx';
 
-import {ActionTypes, Constants, SocketEvents, UserStatuses} from 'utils/constants.jsx';
+import {ActionTypes, Constants, Preferences, SocketEvents, UserStatuses} from 'utils/constants.jsx';
 
 import {browserHistory} from 'react-router/es6';
+
+// Redux actions
+import store from 'stores/redux_store.jsx';
+const dispatch = store.dispatch;
+const getState = store.getState;
+import {batchActions} from 'redux-batched-actions';
+import {viewChannel, getChannelAndMyMember, getChannelStats} from 'mattermost-redux/actions/channels';
+import {setServerVersion} from 'mattermost-redux/actions/general';
+import {ChannelTypes, TeamTypes, UserTypes} from 'mattermost-redux/action_types';
 
 const MAX_WEBSOCKET_FAILS = 7;
 
@@ -36,7 +47,7 @@ export function initialize() {
         return;
     }
 
-    let connUrl = Utils.getSiteURL();
+    let connUrl = getSiteURL();
 
     // replace the protocol with a websocket one
     if (connUrl.startsWith('https:')) {
@@ -59,6 +70,13 @@ export function initialize() {
 
     WebSocketClient.setEventCallback(handleEvent);
     WebSocketClient.setFirstConnectCallback(handleFirstConnect);
+    WebSocketClient.setReconnectCallback(() => reconnect(false));
+    WebSocketClient.setMissedEventCallback(() => {
+        if (global.window.mm_config.EnableDeveloper === 'true') {
+            Client.logClientError('missed websocket event seq=' + WebSocketClient.eventSequence);
+        }
+        reconnect(false);
+    });
     WebSocketClient.setCloseCallback(handleClose);
     WebSocketClient.initialize(connUrl);
 }
@@ -67,9 +85,15 @@ export function close() {
     WebSocketClient.close();
 }
 
-export function reconnect() {
+function reconnectWebSocket() {
     close();
     initialize();
+}
+
+export function reconnect(includeWebSocket = true) {
+    if (includeWebSocket) {
+        reconnectWebSocket();
+    }
 
     if (Client.teamId) {
         loadChannelsForCurrentUser();
@@ -79,6 +103,26 @@ export function reconnect() {
 
     ErrorStore.clearLastError();
     ErrorStore.emitChange();
+}
+
+let intervalId = '';
+const SYNC_INTERVAL_MILLISECONDS = 1000 * 60 * 15; // 15 minutes
+
+export function startPeriodicSync() {
+    clearInterval(intervalId);
+
+    intervalId = setInterval(
+        () => {
+            if (UserStore.getCurrentUser() != null) {
+                reconnect(false);
+            }
+        },
+        SYNC_INTERVAL_MILLISECONDS
+    );
+}
+
+export function stopPeriodicSync() {
+    clearInterval(intervalId);
 }
 
 function handleFirstConnect() {
@@ -118,6 +162,10 @@ function handleEvent(msg) {
         handleUpdateTeamEvent(msg);
         break;
 
+    case SocketEvents.ADDED_TO_TEAM:
+        handleTeamAddedEvent(msg);
+        break;
+
     case SocketEvents.USER_ADDED:
         handleUserAddedEvent(msg);
         break;
@@ -130,8 +178,8 @@ function handleEvent(msg) {
         handleUserUpdatedEvent(msg);
         break;
 
-    case SocketEvents.CHANNEL_VIEWED:
-        handleChannelViewedEvent(msg);
+    case SocketEvents.CHANNEL_CREATED:
+        handleChannelCreatedEvent(msg);
         break;
 
     case SocketEvents.CHANNEL_DELETED:
@@ -144,6 +192,14 @@ function handleEvent(msg) {
 
     case SocketEvents.PREFERENCE_CHANGED:
         handlePreferenceChangedEvent(msg);
+        break;
+
+    case SocketEvents.PREFERENCES_CHANGED:
+        handlePreferencesChangedEvent(msg);
+        break;
+
+    case SocketEvents.PREFERENCES_DELETED:
+        handlePreferencesDeletedEvent(msg);
         break;
 
     case SocketEvents.TYPING:
@@ -182,8 +238,8 @@ function handleNewPostEvent(msg) {
     posts[post.id] = post;
     loadProfilesForPosts(posts);
 
-    if (UserStore.getStatus(post.user_id) !== UserStatuses.ONLINE) {
-        StatusActions.loadStatusesByIds([post.user_id]);
+    if (post.user_id !== UserStore.getCurrentId()) {
+        UserStore.setStatus(post.user_id, UserStatuses.ONLINE);
     }
 }
 
@@ -196,7 +252,7 @@ function handlePostEditEvent(msg) {
     // Update channel state
     if (ChannelStore.getCurrentId() === msg.broadcast.channel_id) {
         if (window.isActive) {
-            AsyncClient.viewChannel();
+            viewChannel(ChannelStore.getCurrentId())(dispatch, getState);
         }
     }
 }
@@ -204,11 +260,27 @@ function handlePostEditEvent(msg) {
 function handlePostDeleteEvent(msg) {
     const post = JSON.parse(msg.data.post);
     GlobalActions.emitPostDeletedEvent(post);
+}
 
-    const selectedPostId = PostStore.getSelectedPostId();
-    if (selectedPostId === post.id) {
-        GlobalActions.emitCloseRightHandSide();
-    }
+function handleTeamAddedEvent(msg) {
+    Client.getTeam(msg.data.team_id, (team) => {
+        AppDispatcher.handleServerAction({
+            type: ActionTypes.RECEIVED_TEAM,
+            team
+        });
+
+        Client.getMyTeamMembers((data) => {
+            AppDispatcher.handleServerAction({
+                type: ActionTypes.RECEIVED_MY_TEAM_MEMBERS,
+                team_members: data
+            });
+            AsyncClient.getMyTeamsUnread();
+        }, (err) => {
+            AsyncClient.dispatchError(err, 'getMyTeamMembers');
+        });
+    }, (err) => {
+        AsyncClient.dispatchError(err, 'getTeam');
+    });
 }
 
 function handleLeaveTeamEvent(msg) {
@@ -217,12 +289,26 @@ function handleLeaveTeamEvent(msg) {
 
         // if they are on the team being removed redirect them to default team
         if (TeamStore.getCurrentId() === msg.data.team_id) {
-            TeamStore.setCurrentId('');
             Client.setTeamId('');
             BrowserStore.removeGlobalItem('team');
             BrowserStore.removeGlobalItem(msg.data.team_id);
-            GlobalActions.redirectUserToDefaultTeam();
+
+            if (!global.location.pathname.startsWith('/admin_console')) {
+                GlobalActions.redirectUserToDefaultTeam();
+            }
         }
+
+        dispatch(batchActions([
+            {
+                type: UserTypes.RECEIVED_PROFILE_NOT_IN_TEAM,
+                data: {user_id: msg.data.user_id},
+                id: msg.data.team_id
+            },
+            {
+                type: TeamTypes.REMOVE_MEMBER_FROM_TEAM,
+                data: {team_id: msg.data.team_id, user_id: msg.data.user_id}
+            }
+        ]));
     } else {
         UserStore.removeProfileFromTeam(msg.data.team_id, msg.data.user_id);
         TeamStore.removeMemberInTeam(msg.data.team_id, msg.data.user_id);
@@ -234,17 +320,18 @@ function handleUpdateTeamEvent(msg) {
 }
 
 function handleDirectAddedEvent(msg) {
-    AsyncClient.getChannel(msg.broadcast.channel_id);
-    loadProfilesAndTeamMembersForDMSidebar();
+    getChannelAndMyMember(msg.broadcast.channel_id)(dispatch, getState);
+    PreferenceStore.setPreference(Preferences.CATEGORY_DIRECT_CHANNEL_SHOW, msg.data.teammate_id, 'true');
+    loadProfilesForSidebar();
 }
 
 function handleUserAddedEvent(msg) {
     if (ChannelStore.getCurrentId() === msg.broadcast.channel_id) {
-        AsyncClient.getChannelStats();
+        getChannelStats(ChannelStore.getCurrentId())(dispatch, getState);
     }
 
     if (TeamStore.getCurrentId() === msg.data.team_id && UserStore.getCurrentId() === msg.data.user_id) {
-        AsyncClient.getChannel(msg.broadcast.channel_id);
+        getChannelAndMyMember(msg.broadcast.channel_id)(dispatch, getState);
     }
 }
 
@@ -262,8 +349,13 @@ function handleUserRemovedEvent(msg) {
             BrowserStore.setItem('channel-removed-state', sentState);
             $('#removed_from_channel').modal('show');
         }
+
+        dispatch({
+            type: ChannelTypes.LEAVE_CHANNEL,
+            data: {id: msg.data.channel_id, user_id: msg.broadcast.user_id}
+        });
     } else if (ChannelStore.getCurrentId() === msg.broadcast.channel_id) {
-        AsyncClient.getChannelStats();
+        getChannelStats(ChannelStore.getCurrentId())(dispatch, getState);
     }
 }
 
@@ -271,16 +363,15 @@ function handleUserUpdatedEvent(msg) {
     const user = msg.data.user;
     if (UserStore.getCurrentId() !== user.id) {
         UserStore.saveProfile(user);
-        UserStore.emitChange(user.id);
     }
 }
 
-function handleChannelViewedEvent(msg) {
-    // Useful for when multiple devices have the app open to different channels
-    if (TeamStore.getCurrentId() === msg.broadcast.team_id &&
-            ChannelStore.getCurrentId() !== msg.data.channel_id &&
-            UserStore.getCurrentId() === msg.broadcast.user_id) {
-        AsyncClient.getChannel(msg.data.channel_id);
+function handleChannelCreatedEvent(msg) {
+    const channelId = msg.data.channel_id;
+    const teamId = msg.data.team_id;
+
+    if (TeamStore.getCurrentId() === teamId && !ChannelStore.getChannelById(channelId)) {
+        getChannelAndMyMember(channelId)(dispatch, getState);
     }
 }
 
@@ -289,6 +380,7 @@ function handleChannelDeletedEvent(msg) {
         const teamUrl = TeamStore.getCurrentTeamRelativeUrl();
         browserHistory.push(teamUrl + '/channels/' + Constants.DEFAULT_CHANNEL);
     }
+    dispatch({type: ChannelTypes.RECEIVED_CHANNEL_DELETED, data: {id: msg.data.channel_id, team_id: msg.broadcast.team_id}}, getState);
     loadChannelsForCurrentUser();
 }
 
@@ -297,11 +389,21 @@ function handlePreferenceChangedEvent(msg) {
     GlobalActions.emitPreferenceChangedEvent(preference);
 }
 
+function handlePreferencesChangedEvent(msg) {
+    const preferences = JSON.parse(msg.data.preferences);
+    GlobalActions.emitPreferencesChangedEvent(preferences);
+}
+
+function handlePreferencesDeletedEvent(msg) {
+    const preferences = JSON.parse(msg.data.preferences);
+    GlobalActions.emitPreferencesDeletedEvent(preferences);
+}
+
 function handleUserTypingEvent(msg) {
     GlobalActions.emitRemoteUserTypingEvent(msg.broadcast.channel_id, msg.data.user_id, msg.data.parent_id);
 
-    if (UserStore.getStatus(msg.data.user_id) !== UserStatuses.ONLINE) {
-        StatusActions.loadStatusesByIds([msg.data.user_id]);
+    if (msg.data.user_id !== UserStore.getCurrentId()) {
+        UserStore.setStatus(msg.data.user_id, UserStatuses.ONLINE);
     }
 }
 
@@ -311,7 +413,7 @@ function handleStatusChangedEvent(msg) {
 
 function handleHelloEvent(msg) {
     Client.serverVersion = msg.data.server_version;
-    AsyncClient.checkVersion();
+    setServerVersion(msg.data.server_version)(dispatch, getState);
 }
 
 function handleWebrtc(msg) {

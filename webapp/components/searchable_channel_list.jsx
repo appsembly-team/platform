@@ -1,4 +1,4 @@
-// Copyright (c) 2016 Mattermost, Inc. All Rights Reserved.
+// Copyright (c) 2016-present Mattermost, Inc. All Rights Reserved.
 // See License.txt for license information.
 
 import LoadingScreen from './loading_screen.jsx';
@@ -6,7 +6,9 @@ import LoadingScreen from './loading_screen.jsx';
 import * as UserAgent from 'utils/user_agent.jsx';
 
 import $ from 'jquery';
+import PropTypes from 'prop-types';
 import React from 'react';
+import ReactDOM from 'react-dom';
 import {localizeMessage} from 'utils/utils.jsx';
 import {FormattedMessage} from 'react-intl';
 
@@ -99,11 +101,13 @@ export default class SearchableChannelList extends React.Component {
         this.setState({page: this.state.page + 1, nextDisabled: true});
         this.nextTimeoutId = setTimeout(() => this.setState({nextDisabled: false}), NEXT_BUTTON_TIMEOUT_MILLISECONDS);
         this.props.nextPage(this.state.page + 1);
+        $(ReactDOM.findDOMNode(this.refs.channelListScroll)).scrollTop(0);
     }
 
     previousPage(e) {
         e.preventDefault();
         this.setState({page: this.state.page - 1});
+        $(ReactDOM.findDOMNode(this.refs.channelListScroll)).scrollTop(0);
     }
 
     doSearch() {
@@ -147,7 +151,10 @@ export default class SearchableChannelList extends React.Component {
                         onClick={this.nextPage}
                         disabled={this.state.nextDisabled}
                     >
-                        {'Next'}
+                        <FormattedMessage
+                            id='more_channels.next'
+                            defaultMessage='Next'
+                        />
                     </button>
                 );
             }
@@ -158,7 +165,10 @@ export default class SearchableChannelList extends React.Component {
                         className='btn btn-default filter-control filter-control__prev'
                         onClick={this.previousPage}
                     >
-                        {'Previous'}
+                        <FormattedMessage
+                            id='more_channels.prev'
+                            defaultMessage='Previous'
+                        />
                     </button>
                 );
             }
@@ -169,6 +179,7 @@ export default class SearchableChannelList extends React.Component {
                 <div className='filter-row'>
                     <div className='col-sm-12'>
                         <input
+                            id='searchChannelsTextbox'
                             ref='filter'
                             className='form-control filter-textbox'
                             placeholder={localizeMessage('filtered_channels_list.search', 'Search channels')}
@@ -180,7 +191,7 @@ export default class SearchableChannelList extends React.Component {
                     ref='channelList'
                     className='more-modal__list'
                 >
-                    <div>
+                    <div ref='channelListScroll'>
                         {listContent}
                     </div>
                 </div>
@@ -198,10 +209,10 @@ SearchableChannelList.defaultProps = {
 };
 
 SearchableChannelList.propTypes = {
-    channels: React.PropTypes.arrayOf(React.PropTypes.object),
-    channelsPerPage: React.PropTypes.number,
-    nextPage: React.PropTypes.func.isRequired,
-    search: React.PropTypes.func.isRequired,
-    handleJoin: React.PropTypes.func.isRequired,
-    noResultsText: React.PropTypes.object
+    channels: PropTypes.arrayOf(PropTypes.object),
+    channelsPerPage: PropTypes.number,
+    nextPage: PropTypes.func.isRequired,
+    search: PropTypes.func.isRequired,
+    handleJoin: PropTypes.func.isRequired,
+    noResultsText: PropTypes.object
 };

@@ -1,4 +1,4 @@
-// Copyright (c) 2015 Mattermost, Inc. All Rights Reserved.
+// Copyright (c) 2015-present Mattermost, Inc. All Rights Reserved.
 // See License.txt for license information.
 
 import $ from 'jquery';
@@ -16,6 +16,8 @@ const holders = defineMessages({
         defaultMessage: 'Show more...'
     }
 });
+
+import PropTypes from 'prop-types';
 
 import React from 'react';
 
@@ -315,7 +317,7 @@ class PostAttachment extends React.Component {
 
 PostAttachment.propTypes = {
     intl: intlShape.isRequired,
-    attachment: React.PropTypes.object.isRequired
+    attachment: PropTypes.object.isRequired
 };
 
 export default injectIntl(PostAttachment);

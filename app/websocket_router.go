@@ -1,4 +1,4 @@
-// Copyright (c) 2016 Mattermost, Inc. All Rights Reserved.
+// Copyright (c) 2016-present Mattermost, Inc. All Rights Reserved.
 // See License.txt for license information.
 
 package app
@@ -42,6 +42,10 @@ func (wr *WebSocketRouter) ServeWebSocket(conn *WebConn, r *model.WebSocketReque
 	}
 
 	if r.Action == model.WEBSOCKET_AUTHENTICATION_CHALLENGE {
+		if conn.SessionToken != "" {
+			return
+		}
+
 		token, ok := r.Data["token"].(string)
 		if !ok {
 			conn.WebSocket.Close()
@@ -53,15 +57,18 @@ func (wr *WebSocketRouter) ServeWebSocket(conn *WebConn, r *model.WebSocketReque
 		if err != nil {
 			conn.WebSocket.Close()
 		} else {
-			go SetStatusOnline(session.UserId, session.Id, false)
+			go func() {
+				SetStatusOnline(session.UserId, session.Id, false)
+				UpdateLastActivityAtIfNeeded(*session)
+			}()
 
 			conn.SessionToken = session.Token
 			conn.UserId = session.UserId
 
+			HubRegister(conn)
+
 			resp := model.NewWebSocketResponse(model.STATUS_OK, r.Seq, nil)
-			resp.DoPreComputeJson()
 			conn.Send <- resp
-			conn.SendHello()
 		}
 
 		return
@@ -90,7 +97,6 @@ func ReturnWebSocketError(conn *WebConn, r *model.WebSocketRequest, err *model.A
 
 	err.DetailedError = ""
 	errorResp := model.NewWebSocketError(r.Seq, err)
-	errorResp.DoPreComputeJson()
 
 	conn.Send <- errorResp
 }

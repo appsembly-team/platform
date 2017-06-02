@@ -1,4 +1,4 @@
-// Copyright (c) 2016 Mattermost, Inc. All Rights Reserved.
+// Copyright (c) 2016-present Mattermost, Inc. All Rights Reserved.
 // See License.txt for license information.
 
 package app
@@ -31,6 +31,10 @@ func AddStatusCache(status *model.Status) {
 }
 
 func GetAllStatuses() map[string]*model.Status {
+	if !*utils.Cfg.ServiceSettings.EnableUserStatuses {
+		return map[string]*model.Status{}
+	}
+
 	userIds := statusCache.Keys()
 	statusMap := map[string]*model.Status{}
 
@@ -49,6 +53,10 @@ func GetAllStatuses() map[string]*model.Status {
 }
 
 func GetStatusesByIds(userIds []string) (map[string]interface{}, *model.AppError) {
+	if !*utils.Cfg.ServiceSettings.EnableUserStatuses {
+		return map[string]interface{}{}, nil
+	}
+
 	statusMap := map[string]interface{}{}
 	metrics := einterfaces.GetMetricsInterface()
 
@@ -90,7 +98,69 @@ func GetStatusesByIds(userIds []string) (map[string]interface{}, *model.AppError
 	return statusMap, nil
 }
 
+//GetUserStatusesByIds used by apiV4
+func GetUserStatusesByIds(userIds []string) ([]*model.Status, *model.AppError) {
+	if !*utils.Cfg.ServiceSettings.EnableUserStatuses {
+		return []*model.Status{}, nil
+	}
+
+	var statusMap []*model.Status
+	metrics := einterfaces.GetMetricsInterface()
+
+	missingUserIds := []string{}
+	for _, userId := range userIds {
+		if result, ok := statusCache.Get(userId); ok {
+			statusMap = append(statusMap, result.(*model.Status))
+			if metrics != nil {
+				metrics.IncrementMemCacheHitCounter("Status")
+			}
+		} else {
+			missingUserIds = append(missingUserIds, userId)
+			if metrics != nil {
+				metrics.IncrementMemCacheMissCounter("Status")
+			}
+		}
+	}
+
+	if len(missingUserIds) > 0 {
+		if result := <-Srv.Store.Status().GetByIds(missingUserIds); result.Err != nil {
+			return nil, result.Err
+		} else {
+			statuses := result.Data.([]*model.Status)
+
+			for _, s := range statuses {
+				AddStatusCache(s)
+			}
+
+			statusMap = append(statusMap, statuses...)
+		}
+	}
+
+	// For the case where the user does not have a row in the Status table and cache
+	// remove the existing ids from missingUserIds and then create a offline state for the missing ones
+	// This also return the status offline for the non-existing Ids in the system
+	for i := 0; i < len(missingUserIds); i++ {
+		missingUserId := missingUserIds[i]
+		for _, userMap := range statusMap {
+			if missingUserId == userMap.UserId {
+				missingUserIds = append(missingUserIds[:i], missingUserIds[i+1:]...)
+				i--
+				break
+			}
+		}
+	}
+	for _, userId := range missingUserIds {
+		statusMap = append(statusMap, &model.Status{UserId: userId, Status: "offline"})
+	}
+
+	return statusMap, nil
+}
+
 func SetStatusOnline(userId string, sessionId string, manual bool) {
+	if !*utils.Cfg.ServiceSettings.EnableUserStatuses {
+		return
+	}
+
 	broadcast := false
 
 	var oldStatus string = model.STATUS_OFFLINE
@@ -100,7 +170,7 @@ func SetStatusOnline(userId string, sessionId string, manual bool) {
 	var err *model.AppError
 
 	if status, err = GetStatus(userId); err != nil {
-		status = &model.Status{userId, model.STATUS_ONLINE, false, model.GetMillis(), ""}
+		status = &model.Status{UserId: userId, Status: model.STATUS_ONLINE, Manual: false, LastActivityAt: model.GetMillis(), ActiveChannel: ""}
 		broadcast = true
 	} else {
 		if status.Manual && !manual {
@@ -125,7 +195,6 @@ func SetStatusOnline(userId string, sessionId string, manual bool) {
 	// Only update the database if the status has changed, the status has been manually set,
 	// or enough time has passed since the previous action
 	if status.Status != oldStatus || status.Manual != oldManual || status.LastActivityAt-oldTime > model.STATUS_MIN_UPDATE_TIME {
-		achan := Srv.Store.Session().UpdateLastActivityAt(sessionId, status.LastActivityAt)
 
 		var schan store.StoreChannel
 		if broadcast {
@@ -134,30 +203,34 @@ func SetStatusOnline(userId string, sessionId string, manual bool) {
 			schan = Srv.Store.Status().UpdateLastActivityAt(status.UserId, status.LastActivityAt)
 		}
 
-		if result := <-achan; result.Err != nil {
-			l4g.Error(utils.T("api.status.last_activity.error"), userId, sessionId, result.Err)
-		}
-
 		if result := <-schan; result.Err != nil {
 			l4g.Error(utils.T("api.status.save_status.error"), userId, result.Err)
 		}
 	}
 
 	if broadcast {
-		event := model.NewWebSocketEvent(model.WEBSOCKET_EVENT_STATUS_CHANGE, "", "", status.UserId, nil)
-		event.Add("status", model.STATUS_ONLINE)
-		event.Add("user_id", status.UserId)
-		go Publish(event)
+		BroadcastStatus(status)
 	}
 }
 
+func BroadcastStatus(status *model.Status) {
+	event := model.NewWebSocketEvent(model.WEBSOCKET_EVENT_STATUS_CHANGE, "", "", status.UserId, nil)
+	event.Add("status", status.Status)
+	event.Add("user_id", status.UserId)
+	go Publish(event)
+}
+
 func SetStatusOffline(userId string, manual bool) {
+	if !*utils.Cfg.ServiceSettings.EnableUserStatuses {
+		return
+	}
+
 	status, err := GetStatus(userId)
 	if err == nil && status.Manual && !manual {
 		return // manually set status always overrides non-manual one
 	}
 
-	status = &model.Status{userId, model.STATUS_OFFLINE, manual, model.GetMillis(), ""}
+	status = &model.Status{UserId: userId, Status: model.STATUS_OFFLINE, Manual: manual, LastActivityAt: model.GetMillis(), ActiveChannel: ""}
 
 	AddStatusCache(status)
 
@@ -172,10 +245,14 @@ func SetStatusOffline(userId string, manual bool) {
 }
 
 func SetStatusAwayIfNeeded(userId string, manual bool) {
+	if !*utils.Cfg.ServiceSettings.EnableUserStatuses {
+		return
+	}
+
 	status, err := GetStatus(userId)
 
 	if err != nil {
-		status = &model.Status{userId, model.STATUS_OFFLINE, manual, 0, ""}
+		status = &model.Status{UserId: userId, Status: model.STATUS_OFFLINE, Manual: manual, LastActivityAt: 0, ActiveChannel: ""}
 	}
 
 	if !manual && status.Manual {
@@ -220,6 +297,10 @@ func GetStatusFromCache(userId string) *model.Status {
 }
 
 func GetStatus(userId string) (*model.Status, *model.AppError) {
+	if !*utils.Cfg.ServiceSettings.EnableUserStatuses {
+		return &model.Status{}, nil
+	}
+
 	status := GetStatusFromCache(userId)
 	if status != nil {
 		return status, nil
@@ -234,22 +315,4 @@ func GetStatus(userId string) (*model.Status, *model.AppError) {
 
 func IsUserAway(lastActivityAt int64) bool {
 	return model.GetMillis()-lastActivityAt >= *utils.Cfg.TeamSettings.UserStatusAwayTimeout*1000
-}
-
-func DoesStatusAllowPushNotification(user *model.User, status *model.Status, channelId string) bool {
-	props := user.NotifyProps
-
-	if props["push"] == "none" {
-		return false
-	}
-
-	if pushStatus, ok := props["push_status"]; (pushStatus == model.STATUS_ONLINE || !ok) && (status.ActiveChannel != channelId || model.GetMillis()-status.LastActivityAt > model.STATUS_CHANNEL_TIMEOUT) {
-		return true
-	} else if pushStatus == model.STATUS_AWAY && (status.Status == model.STATUS_AWAY || status.Status == model.STATUS_OFFLINE) {
-		return true
-	} else if pushStatus == model.STATUS_OFFLINE && status.Status == model.STATUS_OFFLINE {
-		return true
-	}
-
-	return false
 }

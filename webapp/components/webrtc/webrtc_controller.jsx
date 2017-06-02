@@ -1,4 +1,4 @@
-// Copyright (c) 2016 Mattermost, Inc. All Rights Reserved.
+// Copyright (c) 2016-present Mattermost, Inc. All Rights Reserved.
 // See License.txt for license information.
 
 import UserStore from 'stores/user_store.jsx';
@@ -13,10 +13,13 @@ import SearchBox from '../search_bar.jsx';
 import WebrtcHeader from './components/webrtc_header.jsx';
 import ConnectingScreen from 'components/loading_screen.jsx';
 
+import {trackEvent} from 'actions/diagnostics_actions.jsx';
 import * as WebrtcActions from 'actions/webrtc_actions.jsx';
 
 import * as Utils from 'utils/utils.jsx';
 import {Constants, UserStatuses, WebrtcActionTypes} from 'utils/constants.jsx';
+
+import PropTypes from 'prop-types';
 
 import React from 'react';
 import {FormattedMessage} from 'react-intl';
@@ -321,7 +324,7 @@ export default class WebrtcController extends React.Component {
                 error: (
                     <FormattedMessage
                         id='webrtc.inProgress'
-                        defaultMessage='You have a call in progress. Please hangup first.'
+                        defaultMessage='You have a call in progress. Please hang up first.'
                     />
                 ),
                 errorType: ' warning'
@@ -407,7 +410,7 @@ export default class WebrtcController extends React.Component {
                 error: (
                     <FormattedMessage
                         id='webrtc.inProgress'
-                        defaultMessage='You have a call in progress. Please hangup first.'
+                        defaultMessage='You have a call in progress. Please hang up first.'
                     />
                 ),
                 errorType: ' warning'
@@ -600,6 +603,8 @@ export default class WebrtcController extends React.Component {
     }
 
     onFailed() {
+        trackEvent('api', 'api_users_webrtc_failed');
+
         this.setState({
             isCalling: false,
             isAnswering: false,
@@ -644,7 +649,7 @@ export default class WebrtcController extends React.Component {
     }
 
     onConnectCall() {
-        Client.webrtcToken(
+        WebrtcActions.webrtcToken(
             (info) => {
                 const connectingMsg = (
                     <FormattedMessage
@@ -733,6 +738,7 @@ export default class WebrtcController extends React.Component {
     }
 
     doAnswer(jsep) {
+        trackEvent('api', 'api_users_webrtc_start');
         this.videocall.createAnswer({
             jsep,
             stream: this.localMedia,
@@ -747,6 +753,7 @@ export default class WebrtcController extends React.Component {
     }
 
     doHangup(error, manual) {
+        trackEvent('api', 'api_users_webrtc_end');
         if (this.videocall && this.state.callInProgress) {
             this.videocall.send({message: {request: 'hangup'}});
             this.videocall.hangup();
@@ -1058,7 +1065,7 @@ export default class WebrtcController extends React.Component {
                             <title>
                                 <FormattedMessage
                                     id='webrtc.hangup'
-                                    defaultMessage='Hangup'
+                                    defaultMessage='Hang up'
                                 />
                             </title>
                         </circle>
@@ -1230,9 +1237,9 @@ export default class WebrtcController extends React.Component {
 }
 
 WebrtcController.propTypes = {
-    currentUser: React.PropTypes.object,
-    userId: React.PropTypes.string.isRequired,
-    isCaller: React.PropTypes.bool.isRequired,
-    expanded: React.PropTypes.bool.isRequired,
-    toggleSize: React.PropTypes.func
+    currentUser: PropTypes.object,
+    userId: PropTypes.string.isRequired,
+    isCaller: PropTypes.bool.isRequired,
+    expanded: PropTypes.bool.isRequired,
+    toggleSize: PropTypes.func
 };

@@ -1,7 +1,9 @@
-// Copyright (c) 2016 Mattermost, Inc. All Rights Reserved.
+// Copyright (c) 2016-present Mattermost, Inc. All Rights Reserved.
 // See License.txt for license information.
 
 import {FormattedDate} from 'react-intl';
+
+import PropTypes from 'prop-types';
 
 import React from 'react';
 import PureRenderMixin from 'react-addons-pure-render-mixin';
@@ -37,6 +39,10 @@ export default class FloatingTimestamp extends React.Component {
             className += ' scrolling';
         }
 
+        if (this.props.isRhsPost) {
+            className += ' rhs';
+        }
+
         return (
             <div className={className}>
                 <div>
@@ -48,7 +54,8 @@ export default class FloatingTimestamp extends React.Component {
 }
 
 FloatingTimestamp.propTypes = {
-    isScrolling: React.PropTypes.bool.isRequired,
-    isMobile: React.PropTypes.bool,
-    createAt: React.PropTypes.number
+    isScrolling: PropTypes.bool.isRequired,
+    isMobile: PropTypes.bool,
+    createAt: PropTypes.number,
+    isRhsPost: PropTypes.bool
 };

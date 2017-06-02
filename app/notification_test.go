@@ -1,4 +1,4 @@
-// Copyright (c) 2016 Mattermost, Inc. All Rights Reserved.
+// Copyright (c) 2016-present Mattermost, Inc. All Rights Reserved.
 // See License.txt for license information.
 
 package app
@@ -24,7 +24,7 @@ func TestSendNotifications(t *testing.T) {
 		t.Fatal(postErr)
 	}
 
-	mentions, err := SendNotifications(post1, th.BasicTeam, th.BasicChannel)
+	mentions, err := SendNotifications(post1, th.BasicTeam, th.BasicChannel, th.BasicUser)
 	if err != nil {
 		t.Fatal(err)
 	} else if mentions == nil {
@@ -39,6 +39,7 @@ func TestSendNotifications(t *testing.T) {
 func TestGetExplicitMentions(t *testing.T) {
 	id1 := model.NewId()
 	id2 := model.NewId()
+	id3 := model.NewId()
 
 	// not mentioning anybody
 	message := "this is a message"
@@ -113,6 +114,51 @@ func TestGetExplicitMentions(t *testing.T) {
 	if mentions, potential, _, _, _ := GetExplicitMentions(message, keywords); len(mentions) != 1 || !mentions[id1] || len(potential) != 1 {
 		t.Fatal("should've mentioned user and have a potential not in channel")
 	}
+
+	// words in inline code shouldn't trigger mentions
+	message = "`this shouldn't mention @channel at all`"
+	keywords = map[string][]string{}
+	if mentions, _, _, _, _ := GetExplicitMentions(message, keywords); len(mentions) != 0 {
+		t.Fatal("@channel in inline code shouldn't cause a mention")
+	}
+
+	// words in code blocks shouldn't trigger mentions
+	message = "```\nthis shouldn't mention @channel at all\n```"
+	keywords = map[string][]string{}
+	if mentions, _, _, _, _ := GetExplicitMentions(message, keywords); len(mentions) != 0 {
+		t.Fatal("@channel in code block shouldn't cause a mention")
+	}
+
+	// Markdown-formatted text that isn't code should trigger mentions
+	message = "*@aaa @bbb @ccc*"
+	keywords = map[string][]string{"@aaa": {id1}, "@bbb": {id2}, "@ccc": {id3}}
+	if mentions, _, _, _, _ := GetExplicitMentions(message, keywords); len(mentions) != 3 || !mentions[id1] || !mentions[id2] || !mentions[id3] {
+		t.Fatal("should've mentioned all 3 users", mentions)
+	}
+
+	message = "**@aaa @bbb @ccc**"
+	keywords = map[string][]string{"@aaa": {id1}, "@bbb": {id2}, "@ccc": {id3}}
+	if mentions, _, _, _, _ := GetExplicitMentions(message, keywords); len(mentions) != 3 || !mentions[id1] || !mentions[id2] || !mentions[id3] {
+		t.Fatal("should've mentioned all 3 users")
+	}
+
+	message = "~~@aaa @bbb @ccc~~"
+	keywords = map[string][]string{"@aaa": {id1}, "@bbb": {id2}, "@ccc": {id3}}
+	if mentions, _, _, _, _ := GetExplicitMentions(message, keywords); len(mentions) != 3 || !mentions[id1] || !mentions[id2] || !mentions[id3] {
+		t.Fatal("should've mentioned all 3 users")
+	}
+
+	message = "### @aaa"
+	keywords = map[string][]string{"@aaa": {id1}, "@bbb": {id2}, "@ccc": {id3}}
+	if mentions, _, _, _, _ := GetExplicitMentions(message, keywords); len(mentions) != 1 || !mentions[id1] || mentions[id2] || mentions[id3] {
+		t.Fatal("should've only mentioned aaa")
+	}
+
+	message = "> @aaa"
+	keywords = map[string][]string{"@aaa": {id1}, "@bbb": {id2}, "@ccc": {id3}}
+	if mentions, _, _, _, _ := GetExplicitMentions(message, keywords); len(mentions) != 1 || !mentions[id1] || mentions[id2] || mentions[id3] {
+		t.Fatal("should've only mentioned aaa")
+	}
 }
 
 func TestGetExplicitMentionsAtHere(t *testing.T) {
@@ -122,40 +168,38 @@ func TestGetExplicitMentionsAtHere(t *testing.T) {
 		"here":      false,
 		"@here":     true,
 		" @here ":   true,
-		"\t@here\t": true,
 		"\n@here\n": true,
-		// "!@here!": true,
-		// "@@here@": true,
-		// "#@here#": true,
-		// "$@here$": true,
-		// "%@here%": true,
-		// "^@here^": true,
-		// "&@here&": true,
-		// "*@here*": true,
-		"(@here(": true,
-		")@here)": true,
-		// "-@here-": true,
-		// "_@here_": true,
-		// "=@here=": true,
+		"!@here!":   true,
+		"#@here#":   true,
+		"$@here$":   true,
+		"%@here%":   true,
+		"^@here^":   true,
+		"&@here&":   true,
+		"*@here*":   true,
+		"(@here(":   true,
+		")@here)":   true,
+		"-@here-":   true,
+		"_@here_":   false, // This case shouldn't mention since it would be mentioning "@here_"
+		"=@here=":   true,
 		"+@here+":   true,
 		"[@here[":   true,
 		"{@here{":   true,
 		"]@here]":   true,
 		"}@here}":   true,
 		"\\@here\\": true,
-		// "|@here|": true,
-		";@here;": true,
-		":@here:": true,
-		// "'@here'": true,
-		// "\"@here\"": true,
-		",@here,": true,
-		"<@here<": true,
-		".@here.": true,
-		">@here>": true,
-		"/@here/": true,
-		"?@here?": true,
-		// "`@here`": true,
-		// "~@here~": true,
+		"|@here|":   true,
+		";@here;":   true,
+		":@here:":   true,
+		"'@here'":   true,
+		"\"@here\"": true,
+		",@here,":   true,
+		"<@here<":   true,
+		".@here.":   true,
+		">@here>":   true,
+		"/@here/":   true,
+		"?@here?":   true,
+		"`@here`":   false, // This case shouldn't mention since it's a code block
+		"~@here~":   true,
 	}
 
 	for message, shouldMention := range cases {
@@ -174,6 +218,140 @@ func TestGetExplicitMentionsAtHere(t *testing.T) {
 		t.Fatal("should've mentioned @user with \"@here @user\"")
 	} else if len(potential) > 1 {
 		t.Fatal("should've potential mentions for @potential")
+	}
+}
+
+func TestRemoveCodeFromMessage(t *testing.T) {
+	input := "this is regular text"
+	expected := input
+	if actual := removeCodeFromMessage(input); actual != expected {
+		t.Fatalf("received incorrect output\n\nGot:\n%v\n\nExpected:\n%v\n", actual, expected)
+	}
+
+	input = "this is text with\n```\na code block\n```\nin it"
+	expected = "this is text with\n\nin it"
+	if actual := removeCodeFromMessage(input); actual != expected {
+		t.Fatalf("received incorrect output\n\nGot:\n%v\n\nExpected:\n%v\n", actual, expected)
+	}
+
+	input = "this is text with\n```javascript\na JS code block\n```\nin it"
+	expected = "this is text with\n\nin it"
+	if actual := removeCodeFromMessage(input); actual != expected {
+		t.Fatalf("received incorrect output\n\nGot:\n%v\n\nExpected:\n%v\n", actual, expected)
+	}
+
+	input = "this is text with\n```java script?\na JS code block\n```\nin it"
+	expected = "this is text with\n\nin it"
+	if actual := removeCodeFromMessage(input); actual != expected {
+		t.Fatalf("received incorrect output\n\nGot:\n%v\n\nExpected:\n%v\n", actual, expected)
+	}
+
+	input = "this is text with an empty\n```\n\n\n\n```\nin it"
+	expected = "this is text with an empty\n\nin it"
+	if actual := removeCodeFromMessage(input); actual != expected {
+		t.Fatalf("received incorrect output\n\nGot:\n%v\n\nExpected:\n%v\n", actual, expected)
+	}
+
+	input = "this is text with\n```\ntwo\n```\ncode\n```\nblocks\n```\nin it"
+	expected = "this is text with\n\ncode\n\nin it"
+	if actual := removeCodeFromMessage(input); actual != expected {
+		t.Fatalf("received incorrect output\n\nGot:\n%v\n\nExpected:\n%v\n", actual, expected)
+	}
+
+	input = "this is text with indented\n  ```\ncode\n  ```\nin it"
+	expected = "this is text with indented\n\nin it"
+	if actual := removeCodeFromMessage(input); actual != expected {
+		t.Fatalf("received incorrect output\n\nGot:\n%v\n\nExpected:\n%v\n", actual, expected)
+	}
+
+	input = "this is text ending with\n```\nan unfinished code block"
+	expected = "this is text ending with\n"
+	if actual := removeCodeFromMessage(input); actual != expected {
+		t.Fatalf("received incorrect output\n\nGot:\n%v\n\nExpected:\n%v\n", actual, expected)
+	}
+
+	input = "this is `code` in a sentence"
+	expected = "this is   in a sentence"
+	if actual := removeCodeFromMessage(input); actual != expected {
+		t.Fatalf("received incorrect output\n\nGot:\n%v\n\nExpected:\n%v\n", actual, expected)
+	}
+
+	input = "this is `two` things of `code` in a sentence"
+	expected = "this is   things of   in a sentence"
+	if actual := removeCodeFromMessage(input); actual != expected {
+		t.Fatalf("received incorrect output\n\nGot:\n%v\n\nExpected:\n%v\n", actual, expected)
+	}
+
+	input = "this is `code with spaces` in a sentence"
+	expected = "this is   in a sentence"
+	if actual := removeCodeFromMessage(input); actual != expected {
+		t.Fatalf("received incorrect output\n\nGot:\n%v\n\nExpected:\n%v\n", actual, expected)
+	}
+
+	input = "this is `code\nacross multiple` lines"
+	expected = "this is   lines"
+	if actual := removeCodeFromMessage(input); actual != expected {
+		t.Fatalf("received incorrect output\n\nGot:\n%v\n\nExpected:\n%v\n", actual, expected)
+	}
+
+	input = "this is `code\non\nmany\ndifferent` lines"
+	expected = "this is   lines"
+	if actual := removeCodeFromMessage(input); actual != expected {
+		t.Fatalf("received incorrect output\n\nGot:\n%v\n\nExpected:\n%v\n", actual, expected)
+	}
+
+	input = "this is `\ncode on its own line\n` across multiple lines"
+	expected = "this is   across multiple lines"
+	if actual := removeCodeFromMessage(input); actual != expected {
+		t.Fatalf("received incorrect output\n\nGot:\n%v\n\nExpected:\n%v\n", actual, expected)
+	}
+
+	input = "this is `\n    some more code    \n` across multiple lines"
+	expected = "this is   across multiple lines"
+	if actual := removeCodeFromMessage(input); actual != expected {
+		t.Fatalf("received incorrect output\n\nGot:\n%v\n\nExpected:\n%v\n", actual, expected)
+	}
+
+	input = "this is `\ncode` on its own line"
+	expected = "this is   on its own line"
+	if actual := removeCodeFromMessage(input); actual != expected {
+		t.Fatalf("received incorrect output\n\nGot:\n%v\n\nExpected:\n%v\n", actual, expected)
+	}
+
+	input = "this is `code\n` on its own line"
+	expected = "this is   on its own line"
+	if actual := removeCodeFromMessage(input); actual != expected {
+		t.Fatalf("received incorrect output\n\nGot:\n%v\n\nExpected:\n%v\n", actual, expected)
+	}
+
+	input = "this is *italics mixed with `code in a way that has the code` take precedence*"
+	expected = "this is *italics mixed with   take precedence*"
+	if actual := removeCodeFromMessage(input); actual != expected {
+		t.Fatalf("received incorrect output\n\nGot:\n%v\n\nExpected:\n%v\n", actual, expected)
+	}
+
+	input = "this is code within a wo` `rd for some reason"
+	expected = "this is code within a wo rd for some reason"
+	if actual := removeCodeFromMessage(input); actual != expected {
+		t.Fatalf("received incorrect output\n\nGot:\n%v\n\nExpected:\n%v\n", actual, expected)
+	}
+
+	input = "this is `not\n\ncode` because it has a blank line"
+	expected = input
+	if actual := removeCodeFromMessage(input); actual != expected {
+		t.Fatalf("received incorrect output\n\nGot:\n%v\n\nExpected:\n%v\n", actual, expected)
+	}
+
+	input = "this is `not\n    \ncode` because it has line with only whitespace"
+	expected = input
+	if actual := removeCodeFromMessage(input); actual != expected {
+		t.Fatalf("received incorrect output\n\nGot:\n%v\n\nExpected:\n%v\n", actual, expected)
+	}
+
+	input = "this is just `` two backquotes"
+	expected = input
+	if actual := removeCodeFromMessage(input); actual != expected {
+		t.Fatalf("received incorrect output\n\nGot:\n%v\n\nExpected:\n%v\n", actual, expected)
 	}
 }
 
@@ -309,5 +487,295 @@ func TestGetMentionKeywords(t *testing.T) {
 		t.Fatal("should've mentioned user3 and user4 with @channel")
 	} else if ids, ok := mentions["@all"]; !ok || len(ids) != 2 || (ids[0] != user3.Id && ids[1] != user3.Id) || (ids[0] != user4.Id && ids[1] != user4.Id) {
 		t.Fatal("should've mentioned user3 and user4 with @all")
+	}
+}
+
+func TestDoesNotifyPropsAllowPushNotification(t *testing.T) {
+	userNotifyProps := make(map[string]string)
+	channelNotifyProps := make(map[string]string)
+
+	user := &model.User{Id: model.NewId(), Email: "unit@test.com"}
+
+	post := &model.Post{UserId: user.Id, ChannelId: model.NewId()}
+
+	// When the post is a System Message
+	systemPost := &model.Post{UserId: user.Id, Type: model.POST_JOIN_CHANNEL}
+	userNotifyProps[model.PUSH_NOTIFY_PROP] = model.USER_NOTIFY_ALL
+	user.NotifyProps = userNotifyProps
+	if DoesNotifyPropsAllowPushNotification(user, channelNotifyProps, systemPost, false) {
+		t.Fatal("Should have returned false")
+	}
+
+	if DoesNotifyPropsAllowPushNotification(user, channelNotifyProps, systemPost, true) {
+		t.Fatal("Should have returned false")
+	}
+
+	// When default is ALL and no channel props is set
+	if !DoesNotifyPropsAllowPushNotification(user, channelNotifyProps, post, false) {
+		t.Fatal("Should have returned true")
+	}
+
+	if !DoesNotifyPropsAllowPushNotification(user, channelNotifyProps, post, true) {
+		t.Fatal("Should have returned true")
+	}
+
+	// When default is MENTION and no channel props is set
+	userNotifyProps[model.PUSH_NOTIFY_PROP] = model.USER_NOTIFY_MENTION
+	user.NotifyProps = userNotifyProps
+	if DoesNotifyPropsAllowPushNotification(user, channelNotifyProps, post, false) {
+		t.Fatal("Should have returned false")
+	}
+
+	if !DoesNotifyPropsAllowPushNotification(user, channelNotifyProps, post, true) {
+		t.Fatal("Should have returned true")
+	}
+
+	// When default is NONE and no channel props is set
+	userNotifyProps[model.PUSH_NOTIFY_PROP] = model.USER_NOTIFY_NONE
+	user.NotifyProps = userNotifyProps
+	if DoesNotifyPropsAllowPushNotification(user, channelNotifyProps, post, false) {
+		t.Fatal("Should have returned false")
+	}
+
+	if DoesNotifyPropsAllowPushNotification(user, channelNotifyProps, post, true) {
+		t.Fatal("Should have returned false")
+	}
+
+	// WHEN default is ALL and channel is DEFAULT
+	userNotifyProps[model.PUSH_NOTIFY_PROP] = model.USER_NOTIFY_ALL
+	user.NotifyProps = userNotifyProps
+	channelNotifyProps[model.PUSH_NOTIFY_PROP] = model.CHANNEL_NOTIFY_DEFAULT
+	if !DoesNotifyPropsAllowPushNotification(user, channelNotifyProps, post, false) {
+		t.Fatal("Should have returned true")
+	}
+
+	if !DoesNotifyPropsAllowPushNotification(user, channelNotifyProps, post, true) {
+		t.Fatal("Should have returned true")
+	}
+
+	// WHEN default is MENTION and channel is DEFAULT
+	userNotifyProps[model.PUSH_NOTIFY_PROP] = model.USER_NOTIFY_MENTION
+	user.NotifyProps = userNotifyProps
+	channelNotifyProps[model.PUSH_NOTIFY_PROP] = model.CHANNEL_NOTIFY_DEFAULT
+	if DoesNotifyPropsAllowPushNotification(user, channelNotifyProps, post, false) {
+		t.Fatal("Should have returned false")
+	}
+
+	if !DoesNotifyPropsAllowPushNotification(user, channelNotifyProps, post, true) {
+		t.Fatal("Should have returned true")
+	}
+
+	// WHEN default is NONE and channel is DEFAULT
+	userNotifyProps[model.PUSH_NOTIFY_PROP] = model.USER_NOTIFY_NONE
+	user.NotifyProps = userNotifyProps
+	channelNotifyProps[model.PUSH_NOTIFY_PROP] = model.CHANNEL_NOTIFY_DEFAULT
+	if DoesNotifyPropsAllowPushNotification(user, channelNotifyProps, post, false) {
+		t.Fatal("Should have returned false")
+	}
+
+	if DoesNotifyPropsAllowPushNotification(user, channelNotifyProps, post, true) {
+		t.Fatal("Should have returned false")
+	}
+
+	// WHEN default is ALL and channel is ALL
+	userNotifyProps[model.PUSH_NOTIFY_PROP] = model.USER_NOTIFY_ALL
+	user.NotifyProps = userNotifyProps
+	channelNotifyProps[model.PUSH_NOTIFY_PROP] = model.CHANNEL_NOTIFY_ALL
+	if !DoesNotifyPropsAllowPushNotification(user, channelNotifyProps, post, false) {
+		t.Fatal("Should have returned true")
+	}
+
+	if !DoesNotifyPropsAllowPushNotification(user, channelNotifyProps, post, true) {
+		t.Fatal("Should have returned true")
+	}
+
+	// WHEN default is MENTION and channel is ALL
+	userNotifyProps[model.PUSH_NOTIFY_PROP] = model.USER_NOTIFY_MENTION
+	user.NotifyProps = userNotifyProps
+	channelNotifyProps[model.PUSH_NOTIFY_PROP] = model.CHANNEL_NOTIFY_ALL
+	if !DoesNotifyPropsAllowPushNotification(user, channelNotifyProps, post, false) {
+		t.Fatal("Should have returned true")
+	}
+
+	if !DoesNotifyPropsAllowPushNotification(user, channelNotifyProps, post, true) {
+		t.Fatal("Should have returned true")
+	}
+
+	// WHEN default is NONE and channel is ALL
+	userNotifyProps[model.PUSH_NOTIFY_PROP] = model.USER_NOTIFY_NONE
+	user.NotifyProps = userNotifyProps
+	channelNotifyProps[model.PUSH_NOTIFY_PROP] = model.CHANNEL_NOTIFY_ALL
+	if !DoesNotifyPropsAllowPushNotification(user, channelNotifyProps, post, false) {
+		t.Fatal("Should have returned true")
+	}
+
+	if !DoesNotifyPropsAllowPushNotification(user, channelNotifyProps, post, true) {
+		t.Fatal("Should have returned true")
+	}
+
+	// WHEN default is ALL and channel is MENTION
+	userNotifyProps[model.PUSH_NOTIFY_PROP] = model.USER_NOTIFY_ALL
+	user.NotifyProps = userNotifyProps
+	channelNotifyProps[model.PUSH_NOTIFY_PROP] = model.CHANNEL_NOTIFY_MENTION
+	if DoesNotifyPropsAllowPushNotification(user, channelNotifyProps, post, false) {
+		t.Fatal("Should have returned false")
+	}
+
+	if !DoesNotifyPropsAllowPushNotification(user, channelNotifyProps, post, true) {
+		t.Fatal("Should have returned true")
+	}
+
+	// WHEN default is MENTION and channel is MENTION
+	userNotifyProps[model.PUSH_NOTIFY_PROP] = model.USER_NOTIFY_MENTION
+	user.NotifyProps = userNotifyProps
+	channelNotifyProps[model.PUSH_NOTIFY_PROP] = model.CHANNEL_NOTIFY_MENTION
+	if DoesNotifyPropsAllowPushNotification(user, channelNotifyProps, post, false) {
+		t.Fatal("Should have returned false")
+	}
+
+	if !DoesNotifyPropsAllowPushNotification(user, channelNotifyProps, post, true) {
+		t.Fatal("Should have returned true")
+	}
+
+	// WHEN default is NONE and channel is MENTION
+	userNotifyProps[model.PUSH_NOTIFY_PROP] = model.USER_NOTIFY_NONE
+	user.NotifyProps = userNotifyProps
+	channelNotifyProps[model.PUSH_NOTIFY_PROP] = model.CHANNEL_NOTIFY_MENTION
+	if DoesNotifyPropsAllowPushNotification(user, channelNotifyProps, post, false) {
+		t.Fatal("Should have returned false")
+	}
+
+	if !DoesNotifyPropsAllowPushNotification(user, channelNotifyProps, post, true) {
+		t.Fatal("Should have returned true")
+	}
+
+	// WHEN default is ALL and channel is NONE
+	userNotifyProps[model.PUSH_NOTIFY_PROP] = model.USER_NOTIFY_ALL
+	user.NotifyProps = userNotifyProps
+	channelNotifyProps[model.PUSH_NOTIFY_PROP] = model.CHANNEL_NOTIFY_NONE
+	if DoesNotifyPropsAllowPushNotification(user, channelNotifyProps, post, false) {
+		t.Fatal("Should have returned false")
+	}
+
+	if DoesNotifyPropsAllowPushNotification(user, channelNotifyProps, post, true) {
+		t.Fatal("Should have returned false")
+	}
+
+	// WHEN default is MENTION and channel is NONE
+	userNotifyProps[model.PUSH_NOTIFY_PROP] = model.USER_NOTIFY_MENTION
+	user.NotifyProps = userNotifyProps
+	channelNotifyProps[model.PUSH_NOTIFY_PROP] = model.CHANNEL_NOTIFY_NONE
+	if DoesNotifyPropsAllowPushNotification(user, channelNotifyProps, post, false) {
+		t.Fatal("Should have returned false")
+	}
+
+	if DoesNotifyPropsAllowPushNotification(user, channelNotifyProps, post, true) {
+		t.Fatal("Should have returned false")
+	}
+
+	// WHEN default is NONE and channel is NONE
+	userNotifyProps[model.PUSH_NOTIFY_PROP] = model.USER_NOTIFY_NONE
+	user.NotifyProps = userNotifyProps
+	channelNotifyProps[model.PUSH_NOTIFY_PROP] = model.CHANNEL_NOTIFY_NONE
+	if DoesNotifyPropsAllowPushNotification(user, channelNotifyProps, post, false) {
+		t.Fatal("Should have returned false")
+	}
+
+	if DoesNotifyPropsAllowPushNotification(user, channelNotifyProps, post, true) {
+		t.Fatal("Should have returned false")
+	}
+}
+
+func TestDoesStatusAllowPushNotification(t *testing.T) {
+	userNotifyProps := make(map[string]string)
+	userId := model.NewId()
+	channelId := model.NewId()
+
+	offline := &model.Status{UserId: userId, Status: model.STATUS_OFFLINE, Manual: false, LastActivityAt: 0, ActiveChannel: ""}
+	away := &model.Status{UserId: userId, Status: model.STATUS_AWAY, Manual: false, LastActivityAt: 0, ActiveChannel: ""}
+	online := &model.Status{UserId: userId, Status: model.STATUS_ONLINE, Manual: false, LastActivityAt: model.GetMillis(), ActiveChannel: ""}
+
+	userNotifyProps["push_status"] = model.STATUS_ONLINE
+	// WHEN props is ONLINE and user is offline
+	if !DoesStatusAllowPushNotification(userNotifyProps, offline, channelId) {
+		t.Fatal("Should have been true")
+	}
+
+	if !DoesStatusAllowPushNotification(userNotifyProps, offline, "") {
+		t.Fatal("Should have been true")
+	}
+
+	// WHEN props is ONLINE and user is away
+	if !DoesStatusAllowPushNotification(userNotifyProps, away, channelId) {
+		t.Fatal("Should have been true")
+	}
+
+	if !DoesStatusAllowPushNotification(userNotifyProps, away, "") {
+		t.Fatal("Should have been true")
+	}
+
+	// WHEN props is ONLINE and user is online
+	if !DoesStatusAllowPushNotification(userNotifyProps, online, channelId) {
+		t.Fatal("Should have been true")
+	}
+
+	if DoesStatusAllowPushNotification(userNotifyProps, online, "") {
+		t.Fatal("Should have been false")
+	}
+
+	userNotifyProps["push_status"] = model.STATUS_AWAY
+	// WHEN props is AWAY and user is offline
+	if !DoesStatusAllowPushNotification(userNotifyProps, offline, channelId) {
+		t.Fatal("Should have been true")
+	}
+
+	if !DoesStatusAllowPushNotification(userNotifyProps, offline, "") {
+		t.Fatal("Should have been true")
+	}
+
+	// WHEN props is AWAY and user is away
+	if !DoesStatusAllowPushNotification(userNotifyProps, away, channelId) {
+		t.Fatal("Should have been true")
+	}
+
+	if !DoesStatusAllowPushNotification(userNotifyProps, away, "") {
+		t.Fatal("Should have been true")
+	}
+
+	// WHEN props is AWAY and user is online
+	if DoesStatusAllowPushNotification(userNotifyProps, online, channelId) {
+		t.Fatal("Should have been false")
+	}
+
+	if DoesStatusAllowPushNotification(userNotifyProps, online, "") {
+		t.Fatal("Should have been false")
+	}
+
+	userNotifyProps["push_status"] = model.STATUS_OFFLINE
+	// WHEN props is AWAY and user is offline
+	if !DoesStatusAllowPushNotification(userNotifyProps, offline, channelId) {
+		t.Fatal("Should have been true")
+	}
+
+	if !DoesStatusAllowPushNotification(userNotifyProps, offline, "") {
+		t.Fatal("Should have been true")
+	}
+
+	// WHEN props is AWAY and user is away
+	if DoesStatusAllowPushNotification(userNotifyProps, away, channelId) {
+		t.Fatal("Should have been false")
+	}
+
+	if DoesStatusAllowPushNotification(userNotifyProps, away, "") {
+		t.Fatal("Should have been false")
+	}
+
+	// WHEN props is AWAY and user is online
+	if DoesStatusAllowPushNotification(userNotifyProps, online, channelId) {
+		t.Fatal("Should have been false")
+	}
+
+	if DoesStatusAllowPushNotification(userNotifyProps, online, "") {
+		t.Fatal("Should have been false")
 	}
 }

@@ -1,7 +1,9 @@
-// Copyright (c) 2016 Mattermost, Inc. All Rights Reserved.
+// Copyright (c) 2016-present Mattermost, Inc. All Rights Reserved.
 // See License.txt for license information.
 
 import {emitUserLoggedOutEvent} from 'actions/global_actions.jsx';
+
+import PropTypes from 'prop-types';
 
 import React from 'react';
 import {FormattedMessage} from 'react-intl';
@@ -82,6 +84,6 @@ export default class MFAController extends React.Component {
 MFAController.defaultProps = {
 };
 MFAController.propTypes = {
-    location: React.PropTypes.object.isRequired,
-    children: React.PropTypes.node
+    location: PropTypes.object.isRequired,
+    children: PropTypes.node
 };

@@ -1,18 +1,5 @@
 @charset 'UTF-8';
 
-.webrtc__user-profile {
-    @include webrtc-button;
-    position: absolute;
-    right: 7px;
-    text-align: center;
-    top: 5px;
-
-    #webrtc-btn {
-        height: 23px;
-        width: 23px;
-    }
-}
-
 .webrtc__header {
     @include webrtc-button;
     float: left;
@@ -117,7 +104,6 @@
     pointer-events: none;
     position: relative;
     text-align: center;
-    transition: all 1s;
     width: 100%;
 
     #main-video video {
@@ -349,6 +335,7 @@
     }
 
     .search__form {
-        width: calc(100% - 92px);
+        margin-left: 5px;
+        width: calc(100% - 80px);
     }
 }

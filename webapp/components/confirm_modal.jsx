@@ -1,8 +1,10 @@
-// Copyright (c) 2015 Mattermost, Inc. All Rights Reserved.
+// Copyright (c) 2015-present Mattermost, Inc. All Rights Reserved.
 // See License.txt for license information.
 
 import {FormattedMessage} from 'react-intl';
 import {Modal} from 'react-bootstrap';
+
+import PropTypes from 'prop-types';
 
 import React from 'react';
 
@@ -10,11 +12,33 @@ export default class ConfirmModal extends React.Component {
     constructor(props) {
         super(props);
 
-        this.handleConfirm = this.handleConfirm.bind(this);
+        this.handleKeypress = this.handleKeypress.bind(this);
     }
 
-    handleConfirm() {
-        this.props.onConfirm();
+    componentDidMount() {
+        if (this.props.show) {
+            document.addEventListener('keypress', this.handleKeypress);
+        }
+    }
+
+    componentWillUnmount() {
+        if (!this.props.show) {
+            document.removeEventListener('keypress', this.handleKeypress);
+        }
+    }
+
+    componentWillReceiveProps(nextProps) {
+        if (this.props.show && !nextProps.show) {
+            document.removeEventListener('keypress', this.handleKeypress);
+        } else if (!this.props.show && nextProps.show) {
+            document.addEventListener('keypress', this.handleKeypress);
+        }
+    }
+
+    handleKeypress(e) {
+        if (e.key === 'Enter' && this.props.show) {
+            this.props.onConfirm();
+        }
     }
 
     render() {
@@ -43,7 +67,7 @@ export default class ConfirmModal extends React.Component {
                     </button>
                     <button
                         type='button'
-                        className='btn btn-primary'
+                        className={this.props.confirmButtonClass}
                         onClick={this.props.onConfirm}
                     >
                         {this.props.confirmButton}
@@ -57,13 +81,15 @@ export default class ConfirmModal extends React.Component {
 ConfirmModal.defaultProps = {
     title: '',
     message: '',
+    confirmButtonClass: 'btn btn-primary',
     confirmButton: ''
 };
 ConfirmModal.propTypes = {
-    show: React.PropTypes.bool.isRequired,
-    title: React.PropTypes.node,
-    message: React.PropTypes.node,
-    confirmButton: React.PropTypes.node,
-    onConfirm: React.PropTypes.func.isRequired,
-    onCancel: React.PropTypes.func.isRequired
+    show: PropTypes.bool.isRequired,
+    title: PropTypes.node,
+    message: PropTypes.node,
+    confirmButtonClass: PropTypes.string,
+    confirmButton: PropTypes.node,
+    onConfirm: PropTypes.func.isRequired,
+    onCancel: PropTypes.func.isRequired
 };

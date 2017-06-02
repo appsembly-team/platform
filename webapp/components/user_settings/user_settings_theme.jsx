@@ -1,4 +1,4 @@
-// Copyright (c) 2016 Mattermost, Inc. All Rights Reserved.
+// Copyright (c) 2016-present Mattermost, Inc. All Rights Reserved.
 // See License.txt for license information.
 
 import $ from 'jquery';
@@ -20,6 +20,8 @@ import * as Utils from 'utils/utils.jsx';
 import {FormattedMessage} from 'react-intl';
 
 import {ActionTypes, Constants, Preferences} from 'utils/constants.jsx';
+
+import PropTypes from 'prop-types';
 
 import React from 'react';
 
@@ -218,6 +220,7 @@ export default class ThemeSetting extends React.Component {
                 >
                     <label>
                         <input
+                            id='standardThemes'
                             type='radio'
                             name='theme'
                             checked={!displayCustom}
@@ -241,6 +244,7 @@ export default class ThemeSetting extends React.Component {
                 >
                     <label>
                         <input
+                            id='customThemes'
                             type='radio'
                             name='theme'
                             checked={displayCustom}
@@ -260,6 +264,7 @@ export default class ThemeSetting extends React.Component {
                 <div key='otherThemes'>
                     <br/>
                     <a
+                        id='otherThemes'
                         href='http://docs.mattermost.com/help/settings/theme-colors.html#custom-theme-examples'
                         target='_blank'
                         rel='noopener noreferrer'
@@ -278,6 +283,7 @@ export default class ThemeSetting extends React.Component {
                     className='padding-top'
                 >
                     <a
+                        id='slackImportTheme'
                         className='theme'
                         onClick={this.handleImportModal}
                     >
@@ -295,6 +301,7 @@ export default class ThemeSetting extends React.Component {
                     <div className='checkbox user-settings__submit-checkbox'>
                         <label>
                             <input
+                                id='applyThemeToAllTeams'
                                 type='checkbox'
                                 checked={this.state.applyToAllTeams}
                                 onChange={(e) => this.setState({applyToAllTeams: e.target.checked})}
@@ -348,8 +355,8 @@ export default class ThemeSetting extends React.Component {
 }
 
 ThemeSetting.propTypes = {
-    selected: React.PropTypes.bool.isRequired,
-    updateSection: React.PropTypes.func.isRequired,
-    setRequireConfirm: React.PropTypes.func.isRequired,
-    setEnforceFocus: React.PropTypes.func.isRequired
+    selected: PropTypes.bool.isRequired,
+    updateSection: PropTypes.func.isRequired,
+    setRequireConfirm: PropTypes.func.isRequired,
+    setEnforceFocus: PropTypes.func.isRequired
 };

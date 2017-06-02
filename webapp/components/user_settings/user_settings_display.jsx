@@ -1,4 +1,4 @@
-// Copyright (c) 2015 Mattermost, Inc. All Rights Reserved.
+// Copyright (c) 2015-present Mattermost, Inc. All Rights Reserved.
 // See License.txt for license information.
 
 import $ from 'jquery';
@@ -28,6 +28,8 @@ function getDisplayStateFromStores() {
         collapseDisplay: PreferenceStore.get(Preferences.CATEGORY_DISPLAY_SETTINGS, Preferences.COLLAPSE_DISPLAY, Preferences.COLLAPSE_DISPLAY_DEFAULT)
     };
 }
+
+import PropTypes from 'prop-types';
 
 import React from 'react';
 
@@ -160,6 +162,7 @@ export default class UserSettingsDisplay extends React.Component {
                     <div className='radio'>
                         <label>
                             <input
+                                id='collapseFormat'
                                 type='radio'
                                 name='collapseFormat'
                                 checked={collapseFormat[0]}
@@ -175,6 +178,7 @@ export default class UserSettingsDisplay extends React.Component {
                     <div className='radio'>
                         <label>
                             <input
+                                id='collapseFormatOff'
                                 type='radio'
                                 name='collapseFormat'
                                 checked={collapseFormat[1]}
@@ -191,7 +195,7 @@ export default class UserSettingsDisplay extends React.Component {
                         <br/>
                         <FormattedMessage
                             id='user.settings.display.collapseDesc'
-                            defaultMessage='Expand links to show a preview of content, when available.'
+                            defaultMessage='Set whether previews of image links show as expanded or collapsed by default. This setting can also be controlled using the slash commands /expand and /collapse.'
                         />
                     </div>
                 </div>
@@ -202,7 +206,7 @@ export default class UserSettingsDisplay extends React.Component {
                     title={
                         <FormattedMessage
                             id='user.settings.display.collapseDisplay'
-                            defaultMessage='Link previews'
+                            defaultMessage='Default appearance of image link previews'
                         />
                     }
                     inputs={inputs}
@@ -218,14 +222,14 @@ export default class UserSettingsDisplay extends React.Component {
             describe = (
                 <FormattedMessage
                     id='user.settings.display.collapseOn'
-                    defaultMessage='On'
+                    defaultMessage='Expanded'
                 />
             );
         } else {
             describe = (
                 <FormattedMessage
                     id='user.settings.display.collapseOff'
-                    defaultMessage='Off'
+                    defaultMessage='Collapsed'
                 />
             );
         }
@@ -239,7 +243,7 @@ export default class UserSettingsDisplay extends React.Component {
                 title={
                     <FormattedMessage
                         id='user.settings.display.collapseDisplay'
-                        defaultMessage='Link previews'
+                        defaultMessage='Default appearance of image link previews'
                     />
                 }
                 describe={describe}
@@ -277,6 +281,7 @@ export default class UserSettingsDisplay extends React.Component {
                     <div className='radio'>
                         <label>
                             <input
+                                id='clockFormat12h'
                                 type='radio'
                                 name='clockFormat'
                                 checked={clockFormat[0]}
@@ -292,6 +297,7 @@ export default class UserSettingsDisplay extends React.Component {
                     <div className='radio'>
                         <label>
                             <input
+                                id='clockFormat24h'
                                 type='radio'
                                 name='clockFormat'
                                 checked={clockFormat[1]}
@@ -397,6 +403,7 @@ export default class UserSettingsDisplay extends React.Component {
                     <div className='radio'>
                         <label>
                             <input
+                                id='nameFormatUsername'
                                 type='radio'
                                 name='nameFormat'
                                 checked={nameFormat[1]}
@@ -409,6 +416,7 @@ export default class UserSettingsDisplay extends React.Component {
                     <div className='radio'>
                         <label>
                             <input
+                                id='nameFormatNickname'
                                 type='radio'
                                 name='nameFormat'
                                 checked={nameFormat[0]}
@@ -421,6 +429,7 @@ export default class UserSettingsDisplay extends React.Component {
                     <div className='radio'>
                         <label>
                             <input
+                                id='nameFormatFullName'
                                 type='radio'
                                 name='nameFormat'
                                 checked={nameFormat[2]}
@@ -511,6 +520,7 @@ export default class UserSettingsDisplay extends React.Component {
                     <div className='radio'>
                         <label>
                             <input
+                                id='messageFormatStandard'
                                 type='radio'
                                 name='messageDisplay'
                                 checked={messageDisplay[0]}
@@ -533,6 +543,7 @@ export default class UserSettingsDisplay extends React.Component {
                     <div className='radio'>
                         <label>
                             <input
+                                id='messageFormatCompact'
                                 type='radio'
                                 name='messageDisplay'
                                 checked={messageDisplay[1]}
@@ -626,6 +637,7 @@ export default class UserSettingsDisplay extends React.Component {
                     <div className='radio'>
                         <label>
                             <input
+                                id='channelDisplayFormatFullScreen'
                                 type='radio'
                                 name='channelDisplayMode'
                                 checked={channelDisplayMode[0]}
@@ -641,6 +653,7 @@ export default class UserSettingsDisplay extends React.Component {
                     <div className='radio'>
                         <label>
                             <input
+                                id='channelDisplayFormatCentered'
                                 type='radio'
                                 name='channelDisplayMode'
                                 checked={channelDisplayMode[1]}
@@ -735,6 +748,7 @@ export default class UserSettingsDisplay extends React.Component {
                         className='dropdown'
                     >
                         <select
+                            id='displayFontSelect'
                             className='form-control'
                             type='text'
                             value={this.state.selectedFont}
@@ -830,6 +844,7 @@ export default class UserSettingsDisplay extends React.Component {
             <div>
                 <div className='modal-header'>
                     <button
+                        id='closeButton'
                         type='button'
                         className='close'
                         data-dismiss='modal'
@@ -889,12 +904,12 @@ export default class UserSettingsDisplay extends React.Component {
 }
 
 UserSettingsDisplay.propTypes = {
-    user: React.PropTypes.object,
-    updateSection: React.PropTypes.func,
-    updateTab: React.PropTypes.func,
-    activeSection: React.PropTypes.string,
-    closeModal: React.PropTypes.func.isRequired,
-    collapseModal: React.PropTypes.func.isRequired,
-    setRequireConfirm: React.PropTypes.func.isRequired,
-    setEnforceFocus: React.PropTypes.func.isRequired
+    user: PropTypes.object,
+    updateSection: PropTypes.func,
+    updateTab: PropTypes.func,
+    activeSection: PropTypes.string,
+    closeModal: PropTypes.func.isRequired,
+    collapseModal: PropTypes.func.isRequired,
+    setRequireConfirm: PropTypes.func.isRequired,
+    setEnforceFocus: PropTypes.func.isRequired
 };

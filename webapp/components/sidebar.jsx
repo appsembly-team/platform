@@ -1,11 +1,11 @@
-// Copyright (c) 2015 Mattermost, Inc. All Rights Reserved.
+// Copyright (c) 2015-present Mattermost, Inc. All Rights Reserved.
 // See License.txt for license information.
 
 import $ from 'jquery';
 import ReactDOM from 'react-dom';
 import NewChannelFlow from './new_channel_flow.jsx';
-import MoreDirectChannels from './more_direct_channels.jsx';
-import MoreChannels from 'components/more_channels.jsx';
+import MoreDirectChannels from 'components/more_direct_channels';
+import MoreChannels from 'components/more_channels';
 import SidebarHeader from './sidebar_header.jsx';
 import UnreadChannelIndicator from './unread_channel_indicator.jsx';
 import TutorialTip from './tutorial/tutorial_tip.jsx';
@@ -15,13 +15,17 @@ import ChannelStore from 'stores/channel_store.jsx';
 import UserStore from 'stores/user_store.jsx';
 import TeamStore from 'stores/team_store.jsx';
 import PreferenceStore from 'stores/preference_store.jsx';
+import ModalStore from 'stores/modal_store.jsx';
 
+import AppDispatcher from 'dispatcher/app_dispatcher.jsx';
 import * as AsyncClient from 'utils/async_client.jsx';
+import {sortTeamsByDisplayName} from 'utils/team_utils.jsx';
 import * as Utils from 'utils/utils.jsx';
 import * as ChannelUtils from 'utils/channel_utils.jsx';
 import * as ChannelActions from 'actions/channel_actions.jsx';
 
-import Constants from 'utils/constants.jsx';
+import {trackEvent} from 'actions/diagnostics_actions.jsx';
+import {ActionTypes, Constants} from 'utils/constants.jsx';
 
 import {FormattedMessage, FormattedHTMLMessage} from 'react-intl';
 
@@ -37,6 +41,10 @@ import {browserHistory, Link} from 'react-router/es6';
 import favicon from 'images/favicon/favicon-16x16.png';
 import redFavicon from 'images/favicon/redfavicon-16x16.png';
 
+import store from 'stores/redux_store.jsx';
+import {getMyPreferences} from 'mattermost-redux/selectors/entities/preferences';
+import {getUsers} from 'mattermost-redux/selectors/entities/users';
+
 export default class Sidebar extends React.Component {
     constructor(props) {
         super(props);
@@ -48,6 +56,8 @@ export default class Sidebar extends React.Component {
         this.getStateFromStores = this.getStateFromStores.bind(this);
 
         this.onChange = this.onChange.bind(this);
+        this.onModalChange = this.onModalChange.bind(this);
+        this.onInChannelChange = this.onInChannelChange.bind(this);
         this.onScroll = this.onScroll.bind(this);
         this.updateUnreadIndicators = this.updateUnreadIndicators.bind(this);
         this.handleLeaveDirectChannel = this.handleLeaveDirectChannel.bind(this);
@@ -76,32 +86,13 @@ export default class Sidebar extends React.Component {
         state.showDirectChannelsModal = false;
         state.showMoreChannelsModal = false;
         state.loadingDMChannel = -1;
+        state.inChannelChange = false;
         this.state = state;
     }
 
     getTotalUnreadCount() {
-        let msgs = 0;
-        let mentions = 0;
-        const unreadCounts = this.state.unreadCounts;
-        const teamMembers = this.state.teamMembers;
-
-        teamMembers.forEach((member) => {
-            if (member.team_id !== this.state.currentTeam.id) {
-                msgs += member.msg_count || 0;
-                mentions += member.mention_count || 0;
-            }
-        });
-
-        Object.keys(unreadCounts).forEach((chId) => {
-            const channel = ChannelStore.get(chId);
-
-            if (channel && (channel.type === 'D' || channel.team_id === this.state.currentTeam.id)) {
-                msgs += unreadCounts[chId].msgs;
-                mentions += unreadCounts[chId].mentions;
-            }
-        });
-
-        return {msgs, mentions};
+        const unreads = ChannelUtils.getCountsStateFromStores(this.state.currentTeam, this.state.teamMembers, this.state.unreadCounts);
+        return {msgs: unreads.messageCount, mentions: unreads.mentionCount};
     }
 
     getStateFromStores() {
@@ -109,13 +100,27 @@ export default class Sidebar extends React.Component {
         const teamMembers = TeamStore.getMyTeamMembers();
         const currentChannelId = ChannelStore.getCurrentId();
         const tutorialStep = PreferenceStore.getInt(Preferences.TUTORIAL_STEP, UserStore.getCurrentId(), 999);
-        const channelList = ChannelUtils.buildDisplayableChannelList(Object.assign([], ChannelStore.getAll()));
+
+        const channels = ChannelStore.getAll();
+        const preferences = getMyPreferences(store.getState());
+        const profiles = getUsers(store.getState());
+        let displayableChannels = {};
+        if (!Utils.areObjectsEqual(channels, this.oldChannels) ||
+                !Utils.areObjectsEqual(preferences, this.oldPreferences) ||
+                !Utils.areObjectsEqual(profiles, this.oldProfiles)) {
+            const channelsArray = channels.map((channel) => Object.assign({}, channel));
+            displayableChannels = ChannelUtils.buildDisplayableChannelList(channelsArray);
+            displayableChannels.favoriteChannels.sort(sortTeamsByDisplayName);
+        }
+        this.oldChannels = channels;
+        this.oldPreferences = preferences;
+        this.oldProfiles = profiles;
 
         return {
             activeId: currentChannelId,
             members,
             teamMembers,
-            ...channelList,
+            ...displayableChannels,
             unreadCounts: JSON.parse(JSON.stringify(ChannelStore.getUnreadCounts())),
             showTutorialTip: tutorialStep === TutorialSteps.CHANNEL_POPOVER,
             currentTeam: TeamStore.getCurrent(),
@@ -125,13 +130,19 @@ export default class Sidebar extends React.Component {
         };
     }
 
+    onInChannelChange() {
+        this.setState({inChannelChange: !this.state.inChannelChange});
+    }
+
     componentDidMount() {
         ChannelStore.addChangeListener(this.onChange);
         UserStore.addChangeListener(this.onChange);
         UserStore.addInTeamChangeListener(this.onChange);
+        UserStore.addInChannelChangeListener(this.onInChannelChange);
         UserStore.addStatusesChangeListener(this.onChange);
         TeamStore.addChangeListener(this.onChange);
         PreferenceStore.addChangeListener(this.onChange);
+        ModalStore.addModalListener(ActionTypes.TOGGLE_DM_MODAL, this.onModalChange);
 
         this.updateTitle();
         this.updateUnreadIndicators();
@@ -176,14 +187,23 @@ export default class Sidebar extends React.Component {
         ChannelStore.removeChangeListener(this.onChange);
         UserStore.removeChangeListener(this.onChange);
         UserStore.removeInTeamChangeListener(this.onChange);
+        UserStore.removeInChannelChangeListener(this.onChange);
         UserStore.removeStatusesChangeListener(this.onChange);
         TeamStore.removeChangeListener(this.onChange);
         PreferenceStore.removeChangeListener(this.onChange);
+        ModalStore.removeModalListener(ActionTypes.TOGGLE_DM_MODAL, this.onModalChange);
         document.removeEventListener('keydown', this.navigateChannelShortcut);
         document.removeEventListener('keydown', this.navigateUnreadChannelShortcut);
     }
 
+    onModalChange(value, args) {
+        this.showMoreDirectChannelsModal(args.startingUsers);
+    }
+
     onChange() {
+        if (this.state.currentTeam.id !== TeamStore.getCurrentId()) {
+            ChannelStore.clear();
+        }
         this.setState(this.getStateFromStores());
         this.updateTitle();
     }
@@ -197,11 +217,13 @@ export default class Sidebar extends React.Component {
             }
 
             let currentChannelName = channel.display_name;
-            if (channel.type === 'D') {
+            if (channel.type === Constants.DM_CHANNEL) {
                 const teammate = Utils.getDirectTeammate(channel.id);
                 if (teammate != null) {
                     currentChannelName = teammate.username;
                 }
+            } else if (channel.type === Constants.GM_CHANNEL) {
+                currentChannelName = ChannelUtils.buildGroupChannelName(channel.id);
             }
 
             const unread = this.getTotalUnreadCount();
@@ -325,7 +347,7 @@ export default class Sidebar extends React.Component {
     }
 
     getDisplayedChannels() {
-        return this.state.favoriteChannels.concat(this.state.publicChannels).concat(this.state.privateChannels).concat(this.state.directChannels).concat(this.state.directNonTeamChannels);
+        return this.state.favoriteChannels.concat(this.state.publicChannels).concat(this.state.privateChannels).concat(this.state.directAndGroupChannels);
     }
 
     handleLeaveDirectChannel(e, channel) {
@@ -334,9 +356,19 @@ export default class Sidebar extends React.Component {
         if (!this.isLeaving.get(channel.id)) {
             this.isLeaving.set(channel.id, true);
 
+            let id;
+            let category;
+            if (channel.type === Constants.DM_CHANNEL) {
+                id = channel.teammate_id;
+                category = Constants.Preferences.CATEGORY_DIRECT_CHANNEL_SHOW;
+            } else {
+                id = channel.id;
+                category = Constants.Preferences.CATEGORY_GROUP_CHANNEL_SHOW;
+            }
+
             AsyncClient.savePreference(
-                Constants.Preferences.CATEGORY_DIRECT_CHANNEL_SHOW,
-                channel.teammate_id,
+                category,
+                id,
                 'false',
                 () => {
                     this.isLeaving.set(channel.id, false);
@@ -361,6 +393,7 @@ export default class Sidebar extends React.Component {
 
     showMoreChannelsModal() {
         this.setState({showMoreChannelsModal: true});
+        trackEvent('ui', 'ui_channels_more_public');
     }
 
     hideMoreChannelsModal() {
@@ -375,12 +408,13 @@ export default class Sidebar extends React.Component {
         this.setState({newChannelModalType: ''});
     }
 
-    showMoreDirectChannelsModal() {
-        this.setState({showDirectChannelsModal: true});
+    showMoreDirectChannelsModal(startingUsers) {
+        trackEvent('ui', 'ui_channels_more_direct');
+        this.setState({showDirectChannelsModal: true, startingUsers});
     }
 
     hideMoreDirectChannelsModal() {
-        this.setState({showDirectChannelsModal: false});
+        this.setState({showDirectChannelsModal: false, startingUsers: null});
     }
 
     openLeftSidebar() {
@@ -390,6 +424,13 @@ export default class Sidebar extends React.Component {
                 document.querySelector('.app__body .sidebar--left').classList.add('move--right');
             });
         }
+    }
+
+    openQuickSwitcher(e) {
+        e.preventDefault();
+        AppDispatcher.handleViewAction({
+            type: ActionTypes.TOGGLE_QUICK_SWITCH_MODAL
+        });
     }
 
     createTutorialTip() {
@@ -409,7 +450,7 @@ export default class Sidebar extends React.Component {
             <div>
                 <FormattedHTMLMessage
                     id='sidebar.tutorialScreen1'
-                    defaultMessage='<h4>Channels</h4><p><strong>Channels</strong> organize conversations across different topics. They’re open to everyone on your team. To send private communications use <strong>Direct Messages</strong> for a single person or <strong>Private Groups</strong> for multiple people.</p>'
+                    defaultMessage='<h4>Channels</h4><p><strong>Channels</strong> organize conversations across different topics. They’re open to everyone on your team. To send private communications use <strong>Direct Messages</strong> for a single person or <strong>Private Channels</strong> for multiple people.</p>'
                 />
             </div>
         );
@@ -436,7 +477,7 @@ export default class Sidebar extends React.Component {
                     id='sidebar.tutorialScreen3'
                     defaultMessage='<h4>Creating and Joining Channels</h4>
                     <p>Click <strong>"More..."</strong> to create a new channel or join an existing one.</p>
-                    <p>You can also create a new channel or private group by clicking the <strong>"+" symbol</strong> next to the channel or private group header.</p>'
+                    <p>You can also create a new public or private channel by clicking the <strong>"+" symbol</strong> next to the public or private channel header.</p>'
                 />
             </div>
         );
@@ -446,6 +487,7 @@ export default class Sidebar extends React.Component {
                 placement='right'
                 screens={screens}
                 overlayClass='tip-overlay--sidebar'
+                diagnosticsTag='tutorial_tip_2_channels'
             />
         );
     }
@@ -500,14 +542,23 @@ export default class Sidebar extends React.Component {
             rowClass += ' has-badge';
         }
 
+        let displayName = channel.display_name;
+
         var icon = null;
         if (channel.type === Constants.OPEN_CHANNEL) {
             icon = <div className='status'><i className='fa fa-globe'/></div>;
         } else if (channel.type === Constants.PRIVATE_CHANNEL) {
             icon = <div className='status'><i className='fa fa-lock'/></div>;
+        } else if (channel.type === Constants.GM_CHANNEL) {
+            displayName = ChannelUtils.buildGroupChannelName(channel.id);
+            icon = <div className='status status--group'>{UserStore.getProfileListInChannel(channel.id, true).length}</div>;
         } else {
             // set up status icon for direct message channels (status is null for other channel types)
-            icon = <StatusIcon status={channel.status}/>;
+            icon = (
+                <StatusIcon
+                    type='avatar'
+                    status={channel.status}
+                />);
         }
 
         let closeButton = null;
@@ -560,15 +611,20 @@ export default class Sidebar extends React.Component {
                 <Link
                     to={link}
                     className={rowClass}
+                    onClick={this.trackChannelSelectedEvent}
                 >
                     {icon}
-                    {channel.display_name}
+                    {displayName}
                     {badge}
                     {closeButton}
                 </Link>
                 {tutorialTip}
             </li>
         );
+    }
+
+    trackChannelSelectedEvent() {
+        trackEvent('ui', 'ui_channel_selected');
     }
 
     render() {
@@ -585,38 +641,22 @@ export default class Sidebar extends React.Component {
         this.lastUnreadChannel = null;
 
         // create elements for all 4 types of channels
-        const favoriteItems = this.state.favoriteChannels.map((channel, index, arr) => {
-            if (channel.type === Constants.DM_CHANNEL) {
-                return this.createChannelElement(channel, index, arr, this.handleLeaveDirectChannel);
-            }
+        const favoriteItems = this.state.favoriteChannels.
+            map((channel, index, arr) => {
+                if (channel.type === Constants.DM_CHANNEL) {
+                    return this.createChannelElement(channel, index, arr, this.handleLeaveDirectChannel);
+                }
 
-            return this.createChannelElement(channel);
-        });
+                return this.createChannelElement(channel);
+            });
 
         const publicChannelItems = this.state.publicChannels.map(this.createChannelElement);
 
         const privateChannelItems = this.state.privateChannels.map(this.createChannelElement);
 
-        const directMessageItems = this.state.directChannels.map((channel, index, arr) => {
+        const directMessageItems = this.state.directAndGroupChannels.map((channel, index, arr) => {
             return this.createChannelElement(channel, index, arr, this.handleLeaveDirectChannel);
         });
-
-        const directMessageNonTeamItems = this.state.directNonTeamChannels.map((channel, index, arr) => {
-            return this.createChannelElement(channel, index, arr, this.handleLeaveDirectChannel);
-        });
-
-        let directDivider;
-        if (directMessageNonTeamItems.length !== 0) {
-            directDivider =
-            (<div className='sidebar__divider'>
-                <div className='sidebar__divider__text'>
-                    <FormattedMessage
-                        id='sidebar.otherMembers'
-                        defaultMessage='Outside this team'
-                    />
-                </div>
-            </div>);
-        }
 
         // update the favicon to show if there are any notifications
         if (this.lastBadgesActive !== this.badgesActive) {
@@ -641,7 +681,10 @@ export default class Sidebar extends React.Component {
             <li key='more'>
                 <a
                     href='#'
-                    onClick={this.showMoreDirectChannelsModal}
+                    onClick={(e) => {
+                        e.preventDefault();
+                        this.showMoreDirectChannelsModal();
+                    }}
                 >
                     <FormattedMessage
                         id='sidebar.moreElips'
@@ -660,7 +703,7 @@ export default class Sidebar extends React.Component {
             <Tooltip id='new-channel-tooltip' >
                 <FormattedMessage
                     id='sidebar.createChannel'
-                    defaultMessage='Create new channel'
+                    defaultMessage='Create new public channel'
                 />
             </Tooltip>
         );
@@ -668,7 +711,7 @@ export default class Sidebar extends React.Component {
             <Tooltip id='new-group-tooltip'>
                 <FormattedMessage
                     id='sidebar.createGroup'
-                    defaultMessage='Create new group'
+                    defaultMessage='Create new private channel'
                 />
             </Tooltip>
         );
@@ -693,6 +736,7 @@ export default class Sidebar extends React.Component {
         let createPublicChannelIcon = (
             <OverlayTrigger
                 delayShow={500}
+                trigger='hover'
                 placement='top'
                 overlay={createChannelTootlip}
             >
@@ -710,6 +754,7 @@ export default class Sidebar extends React.Component {
             <OverlayTrigger
                 delayShow={500}
                 placement='top'
+                trigger='hover'
                 overlay={createGroupTootlip}
             >
                 <a
@@ -735,6 +780,7 @@ export default class Sidebar extends React.Component {
             moreDirectChannelsModal = (
                 <MoreDirectChannels
                     onModalDismissed={this.hideMoreDirectChannelsModal}
+                    startingUsers={this.state.startingUsers}
                 />
             );
         }
@@ -750,6 +796,11 @@ export default class Sidebar extends React.Component {
                     }}
                 />
             );
+        }
+
+        let quickSwitchText = 'sidebar.switch_channels';
+        if (Utils.isMac()) {
+            quickSwitchText += '.mac';
         }
 
         return (
@@ -814,6 +865,7 @@ export default class Sidebar extends React.Component {
                         {publicChannelItems}
                         <li>
                             <a
+                                id='sidebarChannelsMore'
                                 href='#'
                                 className='nav-more'
                                 onClick={this.showMoreChannelsModal}
@@ -831,7 +883,7 @@ export default class Sidebar extends React.Component {
                             <h4>
                                 <FormattedMessage
                                     id='sidebar.pg'
-                                    defaultMessage='Private Groups'
+                                    defaultMessage='Private Channels'
                                 />
                                 {createPrivateChannelIcon}
                             </h4>
@@ -848,10 +900,20 @@ export default class Sidebar extends React.Component {
                             </h4>
                         </li>
                         {directMessageItems}
-                        {directDivider}
-                        {directMessageNonTeamItems}
                         {directMessageMore}
                     </ul>
+                </div>
+                <div style={{height: '20px', width: '100%'}}>
+                    <a
+                        href='#'
+                        className='sidebar__switcher'
+                        onClick={this.openQuickSwitcher}
+                    >
+                        <FormattedMessage
+                            id={quickSwitchText}
+                            defaultMessage='Switch Channels (CTRL + K)'
+                        />
+                    </a>
                 </div>
             </div>
         );

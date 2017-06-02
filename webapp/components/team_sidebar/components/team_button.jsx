@@ -1,7 +1,12 @@
-// Copyright (c) 2016 Mattermost, Inc. All Rights Reserved.
+// Copyright (c) 2016-present Mattermost, Inc. All Rights Reserved.
 // See License.txt for license information.
 
 import Constants from 'utils/constants.jsx';
+
+import {trackEvent} from 'actions/diagnostics_actions.jsx';
+import {switchTeams} from 'actions/team_actions.jsx';
+
+import PropTypes from 'prop-types';
 
 import React from 'react';
 import {Link} from 'react-router/es6';
@@ -11,7 +16,14 @@ export default class TeamButton extends React.Component {
     constructor(props) {
         super(props);
 
+        this.handleSwitch = this.handleSwitch.bind(this);
         this.handleDisabled = this.handleDisabled.bind(this);
+    }
+
+    handleSwitch(e) {
+        e.preventDefault();
+        trackEvent('ui', 'ui_team_sidebar_switch_team');
+        switchTeams(this.props.url);
     }
 
     handleDisabled(e) {
@@ -22,7 +34,7 @@ export default class TeamButton extends React.Component {
         let teamClass = this.props.active ? 'active' : '';
         const btnClass = this.props.btnClass;
         const disabled = this.props.disabled ? 'team-disabled' : '';
-        const handleClick = (this.props.active || this.props.disabled) ? this.handleDisabled : null;
+        const handleClick = (this.props.active || this.props.disabled) ? this.handleDisabled : this.handleSwitch;
         let badge;
 
         if (!teamClass) {
@@ -100,15 +112,15 @@ TeamButton.defaultProps = {
 };
 
 TeamButton.propTypes = {
-    btnClass: React.PropTypes.string,
-    url: React.PropTypes.string.isRequired,
-    displayName: React.PropTypes.string,
-    content: React.PropTypes.node,
-    tip: React.PropTypes.node.isRequired,
-    active: React.PropTypes.bool,
-    disabled: React.PropTypes.bool,
-    isMobile: React.PropTypes.bool,
-    unread: React.PropTypes.bool,
-    mentions: React.PropTypes.number,
-    placement: React.PropTypes.oneOf(['left', 'right', 'top', 'bottom'])
+    btnClass: PropTypes.string,
+    url: PropTypes.string.isRequired,
+    displayName: PropTypes.string,
+    content: PropTypes.node,
+    tip: PropTypes.node.isRequired,
+    active: PropTypes.bool,
+    disabled: PropTypes.bool,
+    isMobile: PropTypes.bool,
+    unread: PropTypes.bool,
+    mentions: PropTypes.number,
+    placement: PropTypes.oneOf(['left', 'right', 'top', 'bottom'])
 };

@@ -1,4 +1,4 @@
-// Copyright (c) 2015 Mattermost, Inc. All Rights Reserved.
+// Copyright (c) 2015-present Mattermost, Inc. All Rights Reserved.
 // See License.txt for license information.
 
 import AudioVideoPreview from './audio_video_preview.jsx';
@@ -17,6 +17,7 @@ import Constants from 'utils/constants.jsx';
 const KeyCodes = Constants.KeyCodes;
 
 import $ from 'jquery';
+import PropTypes from 'prop-types';
 import React from 'react';
 import {Modal} from 'react-bootstrap';
 
@@ -180,12 +181,11 @@ export default class ViewImageModal extends React.Component {
         if (this.state.loaded[this.state.imgId]) {
             const fileType = Utils.getFileType(fileInfo.extension);
 
-            if (fileType === 'image') {
+            if (fileType === 'image' || fileType === 'svg') {
                 content = (
                     <ImagePreview
                         fileInfo={fileInfo}
                         fileUrl={fileUrl}
-                        maxHeight={this.state.imgHeight}
                     />
                 );
             } else if (fileType === 'video' || fileType === 'audio') {
@@ -193,7 +193,6 @@ export default class ViewImageModal extends React.Component {
                     <AudioVideoPreview
                         fileInfo={fileInfo}
                         fileUrl={fileUrl}
-                        maxHeight={this.state.imgHeight}
                     />
                 );
             } else if (PDFPreview.supports(fileInfo)) {
@@ -312,10 +311,10 @@ ViewImageModal.defaultProps = {
     startId: 0
 };
 ViewImageModal.propTypes = {
-    show: React.PropTypes.bool.isRequired,
-    onModalDismissed: React.PropTypes.func.isRequired,
-    fileInfos: React.PropTypes.arrayOf(React.PropTypes.object).isRequired,
-    startId: React.PropTypes.number
+    show: PropTypes.bool.isRequired,
+    onModalDismissed: PropTypes.func.isRequired,
+    fileInfos: PropTypes.arrayOf(PropTypes.object).isRequired,
+    startId: PropTypes.number
 };
 
 function LoadingImagePreview({progress, loading}) {
@@ -340,11 +339,11 @@ function LoadingImagePreview({progress, loading}) {
 }
 
 LoadingImagePreview.propTypes = {
-    progress: React.PropTypes.number,
-    loading: React.PropTypes.string
+    progress: PropTypes.number,
+    loading: PropTypes.string
 };
 
-function ImagePreview({fileInfo, fileUrl, maxHeight}) {
+function ImagePreview({fileInfo, fileUrl}) {
     let previewUrl;
     if (fileInfo.has_preview_image) {
         previewUrl = FileStore.getFilePreviewUrl(fileInfo.id);
@@ -359,16 +358,12 @@ function ImagePreview({fileInfo, fileUrl, maxHeight}) {
             rel='noopener noreferrer'
             download={true}
         >
-            <img
-                style={{maxHeight}}
-                src={previewUrl}
-            />
+            <img src={previewUrl}/>
         </a>
     );
 }
 
 ImagePreview.propTypes = {
-    fileInfo: React.PropTypes.object.isRequired,
-    fileUrl: React.PropTypes.string.isRequired,
-    maxHeight: React.PropTypes.number.isRequired
+    fileInfo: PropTypes.object.isRequired,
+    fileUrl: PropTypes.string.isRequired
 };

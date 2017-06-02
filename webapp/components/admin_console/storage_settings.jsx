@@ -1,4 +1,4 @@
-// Copyright (c) 2015 Mattermost, Inc. All Rights Reserved.
+// Copyright (c) 2015-present Mattermost, Inc. All Rights Reserved.
 // See License.txt for license information.
 
 import React from 'react';
@@ -25,6 +25,7 @@ export default class StorageSettings extends AdminSettings {
     }
 
     getConfigFromState(config) {
+        config.FileSettings.EnableFileAttachments = this.state.enableFileAttachments;
         config.FileSettings.MaxFileSize = this.parseInt(this.state.maxFileSize) * 1024 * 1024;
         config.FileSettings.DriverName = this.state.driverName;
         config.FileSettings.Directory = this.state.directory;
@@ -33,12 +34,14 @@ export default class StorageSettings extends AdminSettings {
         config.FileSettings.AmazonS3Bucket = this.state.amazonS3Bucket;
         config.FileSettings.AmazonS3Endpoint = this.state.amazonS3Endpoint;
         config.FileSettings.AmazonS3SSL = this.state.amazonS3SSL;
+        config.FileSettings.AmazonS3SignV2 = this.state.amazonS3SignV2;
 
         return config;
     }
 
     getStateFromConfig(config) {
         return {
+            enableFileAttachments: config.FileSettings.EnableFileAttachments,
             maxFileSize: config.FileSettings.MaxFileSize / 1024 / 1024,
             driverName: config.FileSettings.DriverName,
             directory: config.FileSettings.Directory,
@@ -46,18 +49,17 @@ export default class StorageSettings extends AdminSettings {
             amazonS3SecretAccessKey: config.FileSettings.AmazonS3SecretAccessKey,
             amazonS3Bucket: config.FileSettings.AmazonS3Bucket,
             amazonS3Endpoint: config.FileSettings.AmazonS3Endpoint,
-            amazonS3SSL: config.FileSettings.AmazonS3SSL
+            amazonS3SSL: config.FileSettings.AmazonS3SSL,
+            amazonS3SignV2: config.FileSettings.AmazonS3SignV2
         };
     }
 
     renderTitle() {
         return (
-            <h3>
-                <FormattedMessage
-                    id='admin.files.storage'
-                    defaultMessage='Storage'
-                />
-            </h3>
+            <FormattedMessage
+                id='admin.files.storage'
+                defaultMessage='Storage'
+            />
         );
     }
 
@@ -201,6 +203,42 @@ export default class StorageSettings extends AdminSettings {
                     onChange={this.handleChange}
                     disabled={this.state.driverName !== DRIVER_S3}
                 />
+                <BooleanSetting
+                    id='amazonS3SignV2'
+                    label={
+                        <FormattedMessage
+                            id='admin.image.amazonS3SignV2Title'
+                            defaultMessage='Enable Signature V2 for S3 Connections:'
+                        />
+                    }
+                    placeholder={Utils.localizeMessage('admin.image.amazonS3SignV2Example', 'Ex "false"')}
+                    helpText={
+                        <FormattedMessage
+                            id='admin.image.amazonS3SignV2Desc'
+                            defaultMessage='When true, allow signature v2 to Amazon S3. Defaults to Signature V4 requests.'
+                        />
+                    }
+                    value={this.state.amazonS3SignV2}
+                    onChange={this.handleChange}
+                    disabled={this.state.driverName !== DRIVER_S3}
+                />
+                <BooleanSetting
+                    id='enableFileAttachments'
+                    label={
+                        <FormattedMessage
+                            id='admin.file.enableFileAttachments'
+                            defaultMessage='Enable File Attachments:'
+                        />
+                    }
+                    helpText={
+                        <FormattedMessage
+                            id='admin.file.enableFileAttachmentsDesc'
+                            defaultMessage='When false, disable file and image uploads on messages.'
+                        />
+                    }
+                    value={this.state.enableFileAttachments}
+                    onChange={this.handleChange}
+                />
                 <TextSetting
                     id='maxFileSize'
                     label={
@@ -218,6 +256,7 @@ export default class StorageSettings extends AdminSettings {
                     }
                     value={this.state.maxFileSize}
                     onChange={this.handleChange}
+                    disabled={!this.state.enableFileAttachments}
                 />
             </SettingsGroup>
         );

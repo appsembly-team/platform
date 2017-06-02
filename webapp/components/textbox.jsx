@@ -1,4 +1,4 @@
-// Copyright (c) 2015 Mattermost, Inc. All Rights Reserved.
+// Copyright (c) 2015-present Mattermost, Inc. All Rights Reserved.
 // See License.txt for license information.
 
 import $ from 'jquery';
@@ -18,21 +18,25 @@ import {FormattedMessage} from 'react-intl';
 
 const PreReleaseFeatures = Constants.PRE_RELEASE_FEATURES;
 
+import PropTypes from 'prop-types';
+
 import React from 'react';
 
 export default class Textbox extends React.Component {
     static propTypes = {
-        id: React.PropTypes.string.isRequired,
-        channelId: React.PropTypes.string,
-        value: React.PropTypes.string.isRequired,
-        onChange: React.PropTypes.func.isRequired,
-        onKeyPress: React.PropTypes.func.isRequired,
-        createMessage: React.PropTypes.string.isRequired,
-        onKeyDown: React.PropTypes.func,
-        onBlur: React.PropTypes.func,
-        supportsCommands: React.PropTypes.bool.isRequired,
-        handlePostError: React.PropTypes.func,
-        suggestionListStyle: React.PropTypes.string
+        id: PropTypes.string.isRequired,
+        channelId: PropTypes.string,
+        value: PropTypes.string.isRequired,
+        onChange: PropTypes.func.isRequired,
+        onKeyPress: PropTypes.func.isRequired,
+        createMessage: PropTypes.string.isRequired,
+        previewMessageLink: PropTypes.string,
+        onKeyDown: PropTypes.func,
+        onBlur: PropTypes.func,
+        supportsCommands: PropTypes.bool.isRequired,
+        handlePostError: PropTypes.func,
+        suggestionListStyle: PropTypes.string,
+        emojiEnabled: PropTypes.bool
     };
 
     static defaultProps = {
@@ -44,7 +48,7 @@ export default class Textbox extends React.Component {
 
         this.focus = this.focus.bind(this);
         this.recalculateSize = this.recalculateSize.bind(this);
-        this.onRecievedError = this.onRecievedError.bind(this);
+        this.onReceivedError = this.onReceivedError.bind(this);
         this.handleKeyPress = this.handleKeyPress.bind(this);
         this.handleKeyDown = this.handleKeyDown.bind(this);
         this.handleBlur = this.handleBlur.bind(this);
@@ -67,7 +71,7 @@ export default class Textbox extends React.Component {
     }
 
     componentDidMount() {
-        ErrorStore.addChangeListener(this.onRecievedError);
+        ErrorStore.addChangeListener(this.onReceivedError);
     }
 
     componentWillMount() {
@@ -75,10 +79,10 @@ export default class Textbox extends React.Component {
     }
 
     componentWillUnmount() {
-        ErrorStore.removeChangeListener(this.onRecievedError);
+        ErrorStore.removeChangeListener(this.onReceivedError);
     }
 
-    onRecievedError() {
+    onReceivedError() {
         const errorCount = ErrorStore.getConnectionErrorCount();
 
         if (errorCount > 1) {
@@ -156,6 +160,10 @@ export default class Textbox extends React.Component {
         this.setState({preview: !this.state.preview});
     }
 
+    hidePreview() {
+        this.setState({preview: false});
+    }
+
     componentWillReceiveProps(nextProps) {
         if (nextProps.channelId !== this.props.channelId) {
             // Update channel id for AtMentionProvider.
@@ -171,6 +179,22 @@ export default class Textbox extends React.Component {
     render() {
         const hasText = this.props.value && this.props.value.length > 0;
 
+        let editHeader;
+        if (this.props.previewMessageLink) {
+            editHeader = (
+                <span>
+                    {this.props.previewMessageLink}
+                </span>
+            );
+        } else {
+            editHeader = (
+                <FormattedMessage
+                    id='textbox.edit'
+                    defaultMessage='Edit message'
+                />
+            );
+        }
+
         let previewLink = null;
         if (Utils.isFeatureEnabled(PreReleaseFeatures.MARKDOWN_PREVIEW)) {
             previewLink = (
@@ -179,10 +203,7 @@ export default class Textbox extends React.Component {
                     className='textbox-preview-link'
                 >
                     {this.state.preview ? (
-                        <FormattedMessage
-                            id='textbox.edit'
-                            defaultMessage='Edit message'
-                        />
+                       editHeader
                     ) : (
                         <FormattedMessage
                             id='textbox.preview'
@@ -241,6 +262,14 @@ export default class Textbox extends React.Component {
             </div>
         );
 
+        let textboxClassName = 'form-control custom-textarea';
+        if (this.props.emojiEnabled) {
+            textboxClassName += ' custom-textarea--emoji-picker';
+        }
+        if (this.state.connection) {
+            textboxClassName += ' ' + this.state.connection;
+        }
+
         return (
             <div
                 ref='wrapper'
@@ -249,7 +278,7 @@ export default class Textbox extends React.Component {
                 <SuggestionBox
                     id={this.props.id}
                     ref='message'
-                    className={`form-control custom-textarea ${this.state.connection}`}
+                    className={textboxClassName}
                     type='textarea'
                     spellCheck='true'
                     placeholder={this.props.createMessage}

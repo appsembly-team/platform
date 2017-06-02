@@ -1,4 +1,4 @@
-// Copyright (c) 2015 Mattermost, Inc. All Rights Reserved.
+// Copyright (c) 2015-present Mattermost, Inc. All Rights Reserved.
 // See License.txt for license information.
 
 import $ from 'jquery';
@@ -26,6 +26,8 @@ const holders = defineMessages({
         defaultMessage: 'Members of this Team'
     }
 });
+
+import PropTypes from 'prop-types';
 
 import React from 'react';
 
@@ -232,12 +234,12 @@ FilteredUserList.defaultProps = {
 
 FilteredUserList.propTypes = {
     intl: intlShape.isRequired,
-    users: React.PropTypes.arrayOf(React.PropTypes.object),
-    teamMembers: React.PropTypes.arrayOf(React.PropTypes.object),
-    actions: React.PropTypes.arrayOf(React.PropTypes.func),
-    actionProps: React.PropTypes.object,
-    showTeamToggle: React.PropTypes.bool,
-    style: React.PropTypes.object
+    users: PropTypes.arrayOf(PropTypes.object),
+    teamMembers: PropTypes.arrayOf(PropTypes.object),
+    actions: PropTypes.arrayOf(PropTypes.func),
+    actionProps: PropTypes.object,
+    showTeamToggle: PropTypes.bool,
+    style: PropTypes.object
 };
 
 export default injectIntl(FilteredUserList);

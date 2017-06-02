@@ -1,4 +1,6 @@
-// Copyright (c) 2016 Mattermost, Inc. All Rights Reserved.
+import PropTypes from 'prop-types';
+
+// Copyright (c) 2016-present Mattermost, Inc. All Rights Reserved.
 // See License.txt for license information.
 
 import React from 'react';
@@ -14,8 +16,9 @@ import PostMessageView from './post_message_view.jsx';
 
 export default class PostMessageContainer extends React.Component {
     static propTypes = {
-        post: React.PropTypes.object.isRequired,
-        options: React.PropTypes.object
+        post: PropTypes.object.isRequired,
+        options: PropTypes.object,
+        lastPostCount: PropTypes.number
     };
 
     static defaultProps = {
@@ -90,6 +93,7 @@ export default class PostMessageContainer extends React.Component {
             <PostMessageView
                 options={this.props.options}
                 post={this.props.post}
+                lastPostCount={this.props.lastPostCount}
                 emojis={this.state.emojis}
                 enableFormatting={this.state.enableFormatting}
                 mentionKeys={this.state.mentionKeys}

@@ -1,14 +1,15 @@
-// Copyright (c) 2015 Mattermost, Inc. All Rights Reserved.
+// Copyright (c) 2015-present Mattermost, Inc. All Rights Reserved.
 // See License.txt for license information.
 
 import PostAttachmentList from './post_attachment_list.jsx';
-import PostAttachmentOEmbed from './post_attachment_oembed.jsx';
+import PostAttachmentOpenGraph from './post_attachment_opengraph.jsx';
 import PostImage from './post_image.jsx';
 import YoutubeVideo from 'components/youtube_video.jsx';
 
 import Constants from 'utils/constants.jsx';
-import OEmbedProviders from './providers.json';
 import * as Utils from 'utils/utils.jsx';
+
+import PropTypes from 'prop-types';
 
 import React from 'react';
 
@@ -17,7 +18,6 @@ export default class PostBodyAdditionalContent extends React.Component {
         super(props);
 
         this.getSlackAttachment = this.getSlackAttachment.bind(this);
-        this.getOEmbedProvider = this.getOEmbedProvider.bind(this);
         this.generateToggleableEmbed = this.generateToggleableEmbed.bind(this);
         this.generateStaticEmbed = this.generateStaticEmbed.bind(this);
         this.toggleEmbedVisibility = this.toggleEmbedVisibility.bind(this);
@@ -70,18 +70,6 @@ export default class PostBodyAdditionalContent extends React.Component {
                 attachments={attachments}
             />
         );
-    }
-
-    getOEmbedProvider(link) {
-        for (let i = 0; i < OEmbedProviders.length; i++) {
-            for (let j = 0; j < OEmbedProviders[i].patterns.length; j++) {
-                if (link.match(OEmbedProviders[i].patterns[j])) {
-                    return OEmbedProviders[i];
-                }
-            }
-        }
-
-        return null;
     }
 
     isLinkImage(link) {
@@ -152,63 +140,51 @@ export default class PostBodyAdditionalContent extends React.Component {
         }
 
         const link = Utils.extractFirstLink(this.props.post.message);
-        if (!link) {
-            return null;
-        }
-
-        if (Utils.isFeatureEnabled(Constants.PRE_RELEASE_FEATURES.EMBED_PREVIEW)) {
-            const provider = this.getOEmbedProvider(link);
-
-            if (provider) {
-                return (
-                    <PostAttachmentOEmbed
-                        provider={provider}
-                        link={link}
-                    />
-                );
-            }
+        if (link && Utils.isFeatureEnabled(Constants.PRE_RELEASE_FEATURES.EMBED_PREVIEW)) {
+            return (
+                <PostAttachmentOpenGraph
+                    link={link}
+                    childComponentDidUpdateFunction={this.props.childComponentDidUpdateFunction}
+                    previewCollapsed={this.props.previewCollapsed}
+                />
+            );
         }
 
         return null;
     }
 
     render() {
-        const staticEmbed = this.generateStaticEmbed();
-
-        if (staticEmbed) {
-            return (
-                <div>
-                    {this.props.message}
-                    {staticEmbed}
-                </div>
-            );
-        }
-
         if (this.isLinkToggleable() && !this.state.linkLoadError) {
-            const messageWithToggle = [];
-
             // if message has only one line and starts with a link place toggle in this only line
             // else - place it in new line between message and embed
             const prependToggle = (/^\s*https?:\/\/.*$/).test(this.props.post.message);
-            messageWithToggle.push(
+
+            const toggle = (
                 <a
+                    key='toggle'
                     className={`post__embed-visibility ${prependToggle ? 'pull-left' : ''}`}
                     data-expanded={this.state.embedVisible}
                     aria-label='Toggle Embed Visibility'
                     onClick={this.toggleEmbedVisibility}
                 />
             );
+            const message = (
+                <div key='message'>
+                    {this.props.message}
+                </div>
+            );
 
+            let contents;
             if (prependToggle) {
-                messageWithToggle.push(this.props.message);
+                contents = [toggle, message];
             } else {
-                messageWithToggle.unshift(this.props.message);
+                contents = [message, toggle];
             }
 
-            let toggleableEmbed;
             if (this.state.embedVisible) {
-                toggleableEmbed = (
+                contents.push(
                     <div
+                        key='embed'
                         className='post__embed-container'
                     >
                         {this.generateToggleableEmbed()}
@@ -218,8 +194,18 @@ export default class PostBodyAdditionalContent extends React.Component {
 
             return (
                 <div>
-                    {messageWithToggle}
-                    {toggleableEmbed}
+                    {contents}
+                </div>
+            );
+        }
+
+        const staticEmbed = this.generateStaticEmbed();
+
+        if (staticEmbed) {
+            return (
+                <div>
+                    {this.props.message}
+                    {staticEmbed}
                 </div>
             );
         }
@@ -232,8 +218,9 @@ PostBodyAdditionalContent.defaultProps = {
     previewCollapsed: 'false'
 };
 PostBodyAdditionalContent.propTypes = {
-    post: React.PropTypes.object.isRequired,
-    message: React.PropTypes.element.isRequired,
-    compactDisplay: React.PropTypes.bool,
-    previewCollapsed: React.PropTypes.string
+    post: PropTypes.object.isRequired,
+    message: PropTypes.element.isRequired,
+    compactDisplay: PropTypes.bool,
+    previewCollapsed: PropTypes.string,
+    childComponentDidUpdateFunction: PropTypes.func
 };

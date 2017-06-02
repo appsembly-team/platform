@@ -1,4 +1,4 @@
-// Copyright (c) 2016 Mattermost, Inc. All Rights Reserved.
+// Copyright (c) 2016-present Mattermost, Inc. All Rights Reserved.
 // See License.txt for license information.
 package main
 
@@ -6,7 +6,7 @@ import (
 	"errors"
 	"io/ioutil"
 
-	"github.com/mattermost/platform/api"
+	"github.com/mattermost/platform/app"
 	"github.com/spf13/cobra"
 )
 
@@ -28,7 +28,9 @@ func init() {
 }
 
 func uploadLicenseCmdF(cmd *cobra.Command, args []string) error {
-	initDBCommandContextCobra(cmd)
+	if err := initDBCommandContextCobra(cmd); err != nil {
+		return err
+	}
 
 	if len(args) != 1 {
 		return errors.New("Enter one license file to upload")
@@ -40,7 +42,7 @@ func uploadLicenseCmdF(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	if _, err := api.SaveLicense(fileBytes); err != nil {
+	if _, err := app.SaveLicense(fileBytes); err != nil {
 		return err
 	}
 

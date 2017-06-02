@@ -1,10 +1,11 @@
-// Copyright (c) 2015 Mattermost, Inc. All Rights Reserved.
+// Copyright (c) 2015-present Mattermost, Inc. All Rights Reserved.
 // See License.txt for license information.
 
 package api
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -135,7 +136,7 @@ func TestCreatePost(t *testing.T) {
 	} else if rpost9 := resp.Data.(*model.Post); len(rpost9.FileIds) != 3 {
 		t.Fatal("post should have 3 files")
 	} else {
-		infos := store.Must(app.Srv.Store.FileInfo().GetForPost(rpost9.Id)).([]*model.FileInfo)
+		infos := store.Must(app.Srv.Store.FileInfo().GetForPost(rpost9.Id, true, true)).([]*model.FileInfo)
 
 		if len(infos) != 3 {
 			t.Fatal("should've attached all 3 files to post")
@@ -992,6 +993,19 @@ func TestDeletePosts(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// Check that if unlicensed the policy restriction is not enforced.
+	utils.IsLicensed = false
+	utils.License = nil
+	utils.SetDefaultRolesBasedOnConfig()
+
+	time.Sleep(10 * time.Millisecond)
+	post7 := &model.Post{ChannelId: channel1.Id, Message: "a" + model.NewId() + "a"}
+	post7 = Client.Must(Client.CreatePost(post7)).Data.(*model.Post)
+
+	if _, err := Client.DeletePost(channel1.Id, post7.Id); err != nil {
+		t.Fatal(err)
+	}
+
 	SystemAdminClient.Must(SystemAdminClient.DeletePost(channel1.Id, post6a.Id))
 
 }
@@ -1028,14 +1042,25 @@ func TestEmailMention(t *testing.T) {
 	post1 := &model.Post{ChannelId: channel1.Id, Message: "@" + th.BasicUser2.Username + " this is a test"}
 	post1 = Client.Must(Client.CreatePost(post1)).Data.(*model.Post)
 
-	//Check if the email was send to the rigth email address and the mention
-	if resultsMailbox, err := utils.GetMailBox(th.BasicUser2.Email); err != nil && !strings.ContainsAny(resultsMailbox[0].To[0], th.BasicUser2.Email) {
-		t.Fatal("Wrong To recipient")
-	} else {
-		if resultsEmail, err := utils.GetMessageFromMailbox(th.BasicUser2.Email, resultsMailbox[0].ID); err == nil {
-			if !strings.Contains(resultsEmail.Body.Text, post1.Message) {
-				t.Log(resultsEmail.Body.Text)
-				t.Fatal("Received wrong Message")
+	var resultsMailbox utils.JSONMessageHeaderInbucket
+	err := utils.RetryInbucket(5, func() error {
+		var err error
+		resultsMailbox, err = utils.GetMailBox(th.BasicUser2.Email)
+		return err
+	})
+	if err != nil {
+		t.Log(err)
+		t.Log("No email was received, maybe due load on the server. Disabling this verification")
+	}
+	if err == nil && len(resultsMailbox) > 0 {
+		if !strings.ContainsAny(resultsMailbox[len(resultsMailbox)-1].To[0], th.BasicUser2.Email) {
+			t.Fatal("Wrong To recipient")
+		} else {
+			if resultsEmail, err := utils.GetMessageFromMailbox(th.BasicUser2.Email, resultsMailbox[len(resultsMailbox)-1].ID); err == nil {
+				if !strings.Contains(resultsEmail.Body.Text, post1.Message) {
+					t.Log(resultsEmail.Body.Text)
+					t.Fatal("Received wrong Message")
+				}
 			}
 		}
 	}
@@ -1054,42 +1079,6 @@ func TestFuzzyPosts(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-	}
-}
-
-func TestMakeDirectChannelVisible(t *testing.T) {
-	th := Setup().InitBasic()
-	Client := th.BasicClient
-	team := th.BasicTeam
-	user1 := th.BasicUser
-	user2 := th.BasicUser2
-
-	th.LoginBasic2()
-
-	preferences := &model.Preferences{
-		{
-			UserId:   user2.Id,
-			Category: model.PREFERENCE_CATEGORY_DIRECT_CHANNEL_SHOW,
-			Name:     user1.Id,
-			Value:    "false",
-		},
-	}
-	Client.Must(Client.SetPreferences(preferences))
-
-	Client.Must(Client.Logout())
-	th.LoginBasic()
-	th.BasicClient.SetTeamId(team.Id)
-
-	channel := Client.Must(Client.CreateDirectChannel(user2.Id)).Data.(*model.Channel)
-
-	if err := app.MakeDirectChannelVisible(channel.Id); err != nil {
-		t.Fatal(err)
-	}
-
-	if result, err := Client.GetPreference(model.PREFERENCE_CATEGORY_DIRECT_CHANNEL_SHOW, user2.Id); err != nil {
-		t.Fatal("Errored trying to set direct channel to be visible for user1")
-	} else if pref := result.Data.(*model.Preference); pref.Value != "true" {
-		t.Fatal("Failed to set direct channel to be visible for user1")
 	}
 }
 
@@ -1125,6 +1114,11 @@ func TestGetFlaggedPosts(t *testing.T) {
 
 	if len(r2.Order) != 0 {
 		t.Fatal("should not have gotten a flagged post")
+	}
+
+	Client.SetTeamId(model.NewId())
+	if _, err := Client.GetFlaggedPosts(0, 2); err == nil {
+		t.Fatal("should have failed - bad team id")
 	}
 }
 
@@ -1183,6 +1177,7 @@ func TestGetMessageForNotification(t *testing.T) {
 
 	post.FileIds = model.StringArray{testPng.Id, testJpg1.Id}
 	store.Must(app.Srv.Store.FileInfo().AttachToPost(testJpg1.Id, post.Id))
+	app.Srv.Store.FileInfo().InvalidateFileInfosForPostCache(post.Id)
 	if message := app.GetMessageForNotification(post, translateFunc); message != "2 images sent: test1.png, test2.jpg" && message != "2 images sent: test2.jpg, test1.png" {
 		t.Fatal("should've returned number of images:", message)
 	}
@@ -1195,6 +1190,7 @@ func TestGetMessageForNotification(t *testing.T) {
 	}
 
 	store.Must(app.Srv.Store.FileInfo().AttachToPost(testJpg2.Id, post.Id))
+	app.Srv.Store.FileInfo().InvalidateFileInfosForPostCache(post.Id)
 	post.FileIds = model.StringArray{testFile.Id, testJpg2.Id}
 	if message := app.GetMessageForNotification(post, translateFunc); message != "2 files sent: test1.go, test3.jpg" && message != "2 files sent: test3.jpg, test1.go" {
 		t.Fatal("should've returned number of mixed files:", message)
@@ -1270,9 +1266,12 @@ func TestGetPostById(t *testing.T) {
 }
 
 func TestGetPermalinkTmp(t *testing.T) {
-	th := Setup().InitBasic()
+	th := Setup().InitBasic().InitSystemAdmin()
 	Client := th.BasicClient
 	channel1 := th.BasicChannel
+	team := th.BasicTeam
+
+	th.LoginBasic()
 
 	time.Sleep(10 * time.Millisecond)
 	post1 := &model.Post{ChannelId: channel1.Id, Message: "a" + model.NewId() + "a"}
@@ -1296,5 +1295,150 @@ func TestGetPermalinkTmp(t *testing.T) {
 		t.Fatal(respMetadata.Error)
 	} else if results == nil {
 		t.Fatal("should not be empty")
+	}
+
+	// Test permalink to private channels.
+	channel2 := &model.Channel{DisplayName: "TestGetPermalinkPriv", Name: "a" + model.NewId() + "a", Type: model.CHANNEL_PRIVATE, TeamId: team.Id}
+	channel2 = Client.Must(Client.CreateChannel(channel2)).Data.(*model.Channel)
+	time.Sleep(10 * time.Millisecond)
+	post3 := &model.Post{ChannelId: channel2.Id, Message: "a" + model.NewId() + "a"}
+	post3 = Client.Must(Client.CreatePost(post3)).Data.(*model.Post)
+
+	if _, md := Client.GetPermalink(channel2.Id, post3.Id, ""); md.Error != nil {
+		t.Fatal(md.Error)
+	}
+
+	th.LoginBasic2()
+
+	if _, md := Client.GetPermalink(channel2.Id, post3.Id, ""); md.Error == nil {
+		t.Fatal("Expected 403 error")
+	}
+
+	// Test direct channels.
+	th.LoginBasic()
+	channel3 := Client.Must(Client.CreateDirectChannel(th.SystemAdminUser.Id)).Data.(*model.Channel)
+	time.Sleep(10 * time.Millisecond)
+	post4 := &model.Post{ChannelId: channel3.Id, Message: "a" + model.NewId() + "a"}
+	post4 = Client.Must(Client.CreatePost(post4)).Data.(*model.Post)
+
+	if _, md := Client.GetPermalink(channel3.Id, post4.Id, ""); md.Error != nil {
+		t.Fatal(md.Error)
+	}
+
+	th.LoginBasic2()
+
+	if _, md := Client.GetPermalink(channel3.Id, post4.Id, ""); md.Error == nil {
+		t.Fatal("Expected 403 error")
+	}
+}
+
+func TestGetOpenGraphMetadata(t *testing.T) {
+	th := Setup().InitBasic()
+	Client := th.BasicClient
+
+	enableLinkPreviews := *utils.Cfg.ServiceSettings.EnableLinkPreviews
+	defer func() {
+		*utils.Cfg.ServiceSettings.EnableLinkPreviews = enableLinkPreviews
+	}()
+	*utils.Cfg.ServiceSettings.EnableLinkPreviews = true
+
+	ogDataCacheMissCount := 0
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ogDataCacheMissCount++
+
+		if r.URL.Path == "/og-data/" {
+			fmt.Fprintln(w, `
+				<html><head><meta property="og:type" content="article" />
+		  		<meta property="og:title" content="Test Title" />
+		  		<meta property="og:url" content="http://example.com/" />
+				</head><body></body></html>
+			`)
+		} else if r.URL.Path == "/no-og-data/" {
+			fmt.Fprintln(w, `<html><head></head><body></body></html>`)
+		}
+	}))
+
+	for _, data := range [](map[string]interface{}){
+		{"path": "/og-data/", "title": "Test Title", "cacheMissCount": 1},
+		{"path": "/no-og-data/", "title": "", "cacheMissCount": 2},
+
+		// Data should be cached for following
+		{"path": "/og-data/", "title": "Test Title", "cacheMissCount": 2},
+		{"path": "/no-og-data/", "title": "", "cacheMissCount": 2},
+	} {
+		res, err := Client.DoApiPost(
+			"/get_opengraph_metadata",
+			fmt.Sprintf("{\"url\":\"%s\"}", ts.URL+data["path"].(string)),
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		ogData := model.StringInterfaceFromJson(res.Body)
+		if strings.Compare(ogData["title"].(string), data["title"].(string)) != 0 {
+			t.Fatal(fmt.Sprintf(
+				"OG data title mismatch for path \"%s\". Expected title: \"%s\". Actual title: \"%s\"",
+				data["path"].(string), data["title"].(string), ogData["title"].(string),
+			))
+		}
+
+		if ogDataCacheMissCount != data["cacheMissCount"].(int) {
+			t.Fatal(fmt.Sprintf(
+				"Cache miss count didn't match. Expected value %d. Actual value %d.",
+				data["cacheMissCount"].(int), ogDataCacheMissCount,
+			))
+		}
+	}
+
+	*utils.Cfg.ServiceSettings.EnableLinkPreviews = false
+	if _, err := Client.DoApiPost("/get_opengraph_metadata", "{\"url\":\"/og-data/\"}"); err == nil || err.StatusCode != http.StatusNotImplemented {
+		t.Fatal("should have failed with 501 - disabled link previews")
+	}
+}
+
+func TestPinPost(t *testing.T) {
+	th := Setup().InitBasic()
+	Client := th.BasicClient
+
+	post := th.BasicPost
+	if rupost1, err := Client.PinPost(post.ChannelId, post.Id); err != nil {
+		t.Fatal(err)
+	} else {
+		if rupost1.Data.(*model.Post).IsPinned != true {
+			t.Fatal("failed to pin post")
+		}
+	}
+
+	pinnedPost := th.PinnedPost
+	if rupost2, err := Client.PinPost(pinnedPost.ChannelId, pinnedPost.Id); err != nil {
+		t.Fatal(err)
+	} else {
+		if rupost2.Data.(*model.Post).IsPinned != true {
+			t.Fatal("pinning a post should be idempotent")
+		}
+	}
+}
+
+func TestUnpinPost(t *testing.T) {
+	th := Setup().InitBasic()
+	Client := th.BasicClient
+
+	pinnedPost := th.PinnedPost
+	if rupost1, err := Client.UnpinPost(pinnedPost.ChannelId, pinnedPost.Id); err != nil {
+		t.Fatal(err)
+	} else {
+		if rupost1.Data.(*model.Post).IsPinned != false {
+			t.Fatal("failed to unpin post")
+		}
+	}
+
+	post := th.BasicPost
+	if rupost2, err := Client.UnpinPost(post.ChannelId, post.Id); err != nil {
+		t.Fatal(err)
+	} else {
+		if rupost2.Data.(*model.Post).IsPinned != false {
+			t.Fatal("unpinning a post should be idempotent")
+		}
 	}
 }

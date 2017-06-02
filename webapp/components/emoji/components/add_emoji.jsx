@@ -1,4 +1,6 @@
-// Copyright (c) 2016 Mattermost, Inc. All Rights Reserved.
+import PropTypes from 'prop-types';
+
+// Copyright (c) 2016-present Mattermost, Inc. All Rights Reserved.
 // See License.txt for license information.
 
 import React from 'react';
@@ -14,12 +16,12 @@ import SpinnerButton from 'components/spinner_button.jsx';
 
 export default class AddEmoji extends React.Component {
     static propTypes = {
-        team: React.PropTypes.object,
-        user: React.PropTypes.object
+        team: PropTypes.object,
+        user: PropTypes.object
     };
 
     static contextTypes = {
-        router: React.PropTypes.object.isRequired
+        router: PropTypes.object.isRequired
     };
 
     constructor(props) {
@@ -186,9 +188,9 @@ export default class AddEmoji extends React.Component {
                             defaultMessage='This is a sentence with {image} in it.'
                             values={{
                                 image: (
-                                    <img
+                                    <span
                                         className='emoticon'
-                                        src={this.state.imageUrl}
+                                        style={{backgroundImage: 'url(' + this.state.imageUrl + ')'}}
                                     />
                                 )
                             }}

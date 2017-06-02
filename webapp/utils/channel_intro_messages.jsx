@@ -1,8 +1,8 @@
-// Copyright (c) 2015 Mattermost, Inc. All Rights Reserved.
+// Copyright (c) 2015-present Mattermost, Inc. All Rights Reserved.
 // See License.txt for license information.
 
 import * as Utils from './utils.jsx';
-import ChannelInviteModal from 'components/channel_invite_modal.jsx';
+import ChannelInviteModal from 'components/channel_invite_modal';
 import EditChannelHeaderModal from 'components/edit_channel_header_modal.jsx';
 import ToggleModalButton from 'components/toggle_modal_button.jsx';
 import UserProfile from 'components/user_profile.jsx';
@@ -14,6 +14,8 @@ import * as GlobalActions from 'actions/global_actions.jsx';
 import Client from 'client/web_client.jsx';
 import ProfilePicture from 'components/profile_picture.jsx';
 
+import {showManagementOptions} from './channel_utils.jsx';
+
 import React from 'react';
 import {FormattedMessage, FormattedHTMLMessage, FormattedDate} from 'react-intl';
 
@@ -23,8 +25,10 @@ export function createChannelIntroMessage(channel, fullWidthIntro) {
         centeredIntro = 'channel-intro--centered';
     }
 
-    if (channel.type === 'D') {
+    if (channel.type === Constants.DM_CHANNEL) {
         return createDMIntroMessage(channel, centeredIntro);
+    } else if (channel.type === Constants.GM_CHANNEL) {
+        return createGMIntroMessage(channel, centeredIntro);
     } else if (ChannelStore.isDefault(channel)) {
         return createDefaultIntroMessage(channel, centeredIntro);
     } else if (channel.name === Constants.OFFTOPIC_CHANNEL) {
@@ -33,6 +37,65 @@ export function createChannelIntroMessage(channel, fullWidthIntro) {
         return createStandardIntroMessage(channel, centeredIntro);
     }
     return null;
+}
+
+export function createGMIntroMessage(channel, centeredIntro) {
+    const profiles = UserStore.getProfileListInChannel(channel.id, true);
+
+    if (profiles.length > 0) {
+        const pictures = [];
+        let names = '';
+        for (let i = 0; i < profiles.length; i++) {
+            const profile = profiles[i];
+
+            pictures.push(
+                <ProfilePicture
+                    key={'introprofilepicture' + profile.id}
+                    src={Client.getUsersRoute() + '/' + profile.id + '/image?time=' + profile.last_picture_update}
+                    width='50'
+                    height='50'
+                    user={profile}
+                />
+            );
+
+            if (i === profiles.length - 1) {
+                names += Utils.displayUsernameForUser(profile);
+            } else if (i === profiles.length - 2) {
+                names += Utils.displayUsernameForUser(profile) + ' and ';
+            } else {
+                names += Utils.displayUsernameForUser(profile) + ', ';
+            }
+        }
+
+        return (
+            <div className={'channel-intro ' + centeredIntro}>
+                <div className='post-profile-img__container channel-intro-img'>
+                    {pictures}
+                </div>
+                <p className='channel-intro-text'>
+                    <FormattedHTMLMessage
+                        id='intro_messages.GM'
+                        defaultMessage='This is the start of your group message history with {names}.<br />Messages and files shared here are not shown to people outside this area.'
+                        values={{
+                            names
+                        }}
+                    />
+                </p>
+                {createSetHeaderButton(channel)}
+            </div>
+        );
+    }
+
+    return (
+        <div className={'channel-intro ' + centeredIntro}>
+            <p className='channel-intro-text'>
+                <FormattedMessage
+                    id='intro_messages.group_message'
+                    defaultMessage='This is the start of your group message history with these teammates. Messages and files shared here are not shown to people outside this area.'
+                />
+            </p>
+        </div>
+    );
 }
 
 export function createDMIntroMessage(channel, centeredIntro) {
@@ -89,6 +152,22 @@ export function createDMIntroMessage(channel, centeredIntro) {
 }
 
 export function createOffTopicIntroMessage(channel, centeredIntro) {
+    var uiType = (
+        <FormattedMessage
+            id='intro_messages.channel'
+            defaultMessage='channel'
+        />
+    );
+
+    const isAdmin = TeamStore.isTeamAdminForCurrentTeam() || UserStore.isSystemAdminForCurrentUser();
+    const isSystemAdmin = UserStore.isSystemAdminForCurrentUser();
+    const isChannelAdmin = ChannelStore.isChannelAdminForCurrentChannel();
+
+    let setHeaderButton = createSetHeaderButton(channel);
+    if (!showManagementOptions(channel, isAdmin, isSystemAdmin, isChannelAdmin)) {
+        setHeaderButton = null;
+    }
+
     return (
         <div className={'channel-intro ' + centeredIntro}>
             <FormattedHTMLMessage
@@ -98,8 +177,8 @@ export function createOffTopicIntroMessage(channel, centeredIntro) {
                     display_name: channel.display_name
                 }}
             />
-            {createInviteChannelMemberButton(channel, 'channel')}
-            {createSetHeaderButton(channel)}
+            {createInviteChannelMemberButton(channel, uiType)}
+            {setHeaderButton}
         </div>
     );
 }
@@ -121,6 +200,7 @@ export function createDefaultIntroMessage(channel, centeredIntro) {
 
     const isAdmin = TeamStore.isTeamAdminForCurrentTeam() || UserStore.isSystemAdminForCurrentUser();
     const isSystemAdmin = UserStore.isSystemAdminForCurrentUser();
+    const isChannelAdmin = ChannelStore.isChannelAdminForCurrentChannel();
 
     if (global.window.mm_license.IsLicensed === 'true') {
         if (global.window.mm_config.RestrictTeamInvite === Constants.PERMISSIONS_SYSTEM_ADMIN && !isSystemAdmin) {
@@ -128,6 +208,11 @@ export function createDefaultIntroMessage(channel, centeredIntro) {
         } else if (global.window.mm_config.RestrictTeamInvite === Constants.PERMISSIONS_TEAM_ADMIN && !isAdmin) {
             inviteModalLink = null;
         }
+    }
+
+    let setHeaderButton = createSetHeaderButton(channel);
+    if (!showManagementOptions(channel, isAdmin, isSystemAdmin, isChannelAdmin)) {
+        setHeaderButton = null;
     }
 
     return (
@@ -140,7 +225,7 @@ export function createDefaultIntroMessage(channel, centeredIntro) {
                 }}
             />
             {inviteModalLink}
-            {createSetHeaderButton(channel)}
+            {setHeaderButton}
             <br/>
         </div>
     );
@@ -156,13 +241,13 @@ export function createStandardIntroMessage(channel, centeredIntro) {
         uiType = (
             <FormattedMessage
                 id='intro_messages.group'
-                defaultMessage='private group'
+                defaultMessage='private channel'
             />
         );
         memberMessage = (
             <FormattedMessage
                 id='intro_messages.onlyInvited'
-                defaultMessage=' Only invited members can see this private group.'
+                defaultMessage=' Only invited members can see this private channel.'
             />
         );
     } else {
@@ -235,6 +320,15 @@ export function createStandardIntroMessage(channel, centeredIntro) {
         );
     }
 
+    const isAdmin = TeamStore.isTeamAdminForCurrentTeam() || UserStore.isSystemAdminForCurrentUser();
+    const isSystemAdmin = UserStore.isSystemAdminForCurrentUser();
+    const isChannelAdmin = ChannelStore.isChannelAdminForCurrentChannel();
+
+    let setHeaderButton = createSetHeaderButton(channel);
+    if (!showManagementOptions(channel, isAdmin, isSystemAdmin, isChannelAdmin)) {
+        setHeaderButton = null;
+    }
+
     return (
         <div className={'channel-intro ' + centeredIntro}>
             <h4 className='channel-intro__title'>
@@ -253,7 +347,7 @@ export function createStandardIntroMessage(channel, centeredIntro) {
                 <br/>
             </p>
             {createInviteChannelMemberButton(channel, uiType)}
-            {createSetHeaderButton(channel)}
+            {setHeaderButton}
         </div>
     );
 }

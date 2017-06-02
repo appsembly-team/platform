@@ -93,17 +93,23 @@ type revokeCertMessage struct {
 	Certificate string `json:"certificate"`
 }
 
+type deactivateAuthMessage struct {
+	Resource string `json:"resource,omitempty"`
+	Status   string `jsom:"status"`
+}
+
 // CertificateResource represents a CA issued certificate.
-// PrivateKey and Certificate are both already PEM encoded
-// and can be directly written to disk. Certificate may
-// be a certificate bundle, depending on the options supplied
-// to create it.
+// PrivateKey, Certificate and IssuerCertificate are all
+// already PEM encoded and can be directly written to disk.
+// Certificate may be a certificate bundle, depending on the
+// options supplied to create it.
 type CertificateResource struct {
-	Domain        string `json:"domain"`
-	CertURL       string `json:"certUrl"`
-	CertStableURL string `json:"certStableUrl"`
-	AccountRef    string `json:"accountRef,omitempty"`
-	PrivateKey    []byte `json:"-"`
-	Certificate   []byte `json:"-"`
-	CSR           []byte `json:"-"`
+	Domain            string `json:"domain"`
+	CertURL           string `json:"certUrl"`
+	CertStableURL     string `json:"certStableUrl"`
+	AccountRef        string `json:"accountRef,omitempty"`
+	PrivateKey        []byte `json:"-"`
+	Certificate       []byte `json:"-"`
+	IssuerCertificate []byte `json:"-"`
+	CSR               []byte `json:"-"`
 }

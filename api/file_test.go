@@ -1,4 +1,4 @@
-// Copyright (c) 2015 Mattermost, Inc. All Rights Reserved.
+// Copyright (c) 2015-present Mattermost, Inc. All Rights Reserved.
 // See License.txt for license information.
 
 package api
@@ -97,6 +97,18 @@ func TestUploadFile(t *testing.T) {
 	if info.PreviewPath != expectedPreviewPath {
 		t.Logf("file preview is saved in %v", info.PreviewPath)
 		t.Fatalf("file preview should've been saved in %v", expectedPreviewPath)
+	}
+
+	enableFileAttachments := *utils.Cfg.FileSettings.EnableFileAttachments
+	defer func() {
+		*utils.Cfg.FileSettings.EnableFileAttachments = enableFileAttachments
+	}()
+	*utils.Cfg.FileSettings.EnableFileAttachments = false
+
+	if data, err := readTestFile("test.png"); err != nil {
+		t.Fatal(err)
+	} else if _, err = Client.UploadPostAttachment(data, channel.Id, "test.png"); err == nil {
+		t.Fatal("should have errored")
 	}
 
 	// Wait a bit for files to ready
@@ -406,6 +418,7 @@ func TestGetPublicFile(t *testing.T) {
 	time.Sleep(2 * time.Second)
 
 	if resp, err := http.Get(link); err != nil || resp.StatusCode != http.StatusOK {
+		t.Log(link)
 		t.Fatal("failed to get image with public link", err)
 	}
 
@@ -509,7 +522,7 @@ func TestGetPublicFileOld(t *testing.T) {
 
 func generatePublicLinkOld(siteURL, teamId, channelId, userId, filename string) string {
 	hash := app.GeneratePublicLinkHash(filename, *utils.Cfg.FileSettings.PublicLinkSalt)
-	return fmt.Sprintf("%s%s/public/files/get/%s/%s/%s/%s?h=%s", siteURL, model.API_URL_SUFFIX, teamId, channelId, userId, filename, hash)
+	return fmt.Sprintf("%s%s/public/files/get/%s/%s/%s/%s?h=%s", siteURL, model.API_URL_SUFFIX_V3, teamId, channelId, userId, filename, hash)
 }
 
 func TestGetPublicLink(t *testing.T) {
@@ -792,7 +805,7 @@ func TestGetInfoForFilename(t *testing.T) {
 }
 
 func readTestFile(name string) ([]byte, error) {
-	path := utils.FindDir("tests")
+	path, _ := utils.FindDir("tests")
 	file, err := os.Open(path + "/" + name)
 	if err != nil {
 		return nil, err
@@ -807,13 +820,21 @@ func readTestFile(name string) ([]byte, error) {
 	}
 }
 
+func s3New(endpoint, accessKey, secretKey string, secure bool, signV2 bool) (*s3.Client, error) {
+	if signV2 {
+		return s3.NewV2(endpoint, accessKey, secretKey, secure)
+	}
+	return s3.NewV4(endpoint, accessKey, secretKey, secure)
+}
+
 func cleanupTestFile(info *model.FileInfo) error {
 	if utils.Cfg.FileSettings.DriverName == model.IMAGE_DRIVER_S3 {
 		endpoint := utils.Cfg.FileSettings.AmazonS3Endpoint
 		accessKey := utils.Cfg.FileSettings.AmazonS3AccessKeyId
 		secretKey := utils.Cfg.FileSettings.AmazonS3SecretAccessKey
 		secure := *utils.Cfg.FileSettings.AmazonS3SSL
-		s3Clnt, err := s3.New(endpoint, accessKey, secretKey, secure)
+		signV2 := *utils.Cfg.FileSettings.AmazonS3SignV2
+		s3Clnt, err := s3New(endpoint, accessKey, secretKey, secure, signV2)
 		if err != nil {
 			return err
 		}

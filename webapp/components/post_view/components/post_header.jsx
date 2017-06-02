@@ -1,12 +1,15 @@
-// Copyright (c) 2015 Mattermost, Inc. All Rights Reserved.
+// Copyright (c) 2015-present Mattermost, Inc. All Rights Reserved.
 // See License.txt for license information.
 
 import UserProfile from 'components/user_profile.jsx';
 import PostInfo from './post_info.jsx';
+import {FormattedMessage} from 'react-intl';
 
 import * as PostUtils from 'utils/post_utils.jsx';
 
 import Constants from 'utils/constants.jsx';
+
+import PropTypes from 'prop-types';
 
 import React from 'react';
 
@@ -50,12 +53,17 @@ export default class PostHeader extends React.Component {
                 );
             }
 
-            botIndicator = <li className='bot-indicator'>{Constants.BOT_NAME}</li>;
+            botIndicator = <div className='bot-indicator'>{Constants.BOT_NAME}</div>;
         } else if (isSystemMessage) {
             userProfile = (
                 <UserProfile
                     user={{}}
-                    overwriteName={Constants.SYSTEM_MESSAGE_PROFILE_NAME}
+                    overwriteName={
+                        <FormattedMessage
+                            id='post_info.system'
+                            defaultMessage='System'
+                        />
+                    }
                     overwriteImage={Constants.SYSTEM_MESSAGE_PROFILE_IMAGE}
                     disablePopover={true}
                 />
@@ -67,16 +75,16 @@ export default class PostHeader extends React.Component {
         }
 
         return (
-            <ul className='post__header'>
-                <li className='col col__name'>{userProfile}{colon}</li>
+            <div className='post__header'>
+                <div className='col col__name'>{userProfile}{colon}</div>
                 {botIndicator}
-                <li className='col'>
+                <div className='col'>
                     <PostInfo
                         post={post}
+                        lastPostCount={this.props.lastPostCount}
                         commentCount={this.props.commentCount}
                         handleCommentClick={this.props.handleCommentClick}
                         handleDropdownOpened={this.props.handleDropdownOpened}
-                        allowReply={!isSystemMessage}
                         isLastComment={this.props.isLastComment}
                         sameUser={this.props.sameUser}
                         currentUser={this.props.currentUser}
@@ -84,8 +92,8 @@ export default class PostHeader extends React.Component {
                         useMilitaryTime={this.props.useMilitaryTime}
                         isFlagged={this.props.isFlagged}
                     />
-                </li>
-            </ul>
+                </div>
+            </div>
         );
     }
 }
@@ -97,18 +105,19 @@ PostHeader.defaultProps = {
     sameUser: false
 };
 PostHeader.propTypes = {
-    post: React.PropTypes.object.isRequired,
-    user: React.PropTypes.object,
-    currentUser: React.PropTypes.object.isRequired,
-    commentCount: React.PropTypes.number.isRequired,
-    isLastComment: React.PropTypes.bool.isRequired,
-    handleCommentClick: React.PropTypes.func.isRequired,
-    handleDropdownOpened: React.PropTypes.func.isRequired,
-    sameUser: React.PropTypes.bool.isRequired,
-    compactDisplay: React.PropTypes.bool,
-    displayNameType: React.PropTypes.string,
-    useMilitaryTime: React.PropTypes.bool.isRequired,
-    isFlagged: React.PropTypes.bool.isRequired,
-    status: React.PropTypes.string,
-    isBusy: React.PropTypes.bool
+    post: PropTypes.object.isRequired,
+    user: PropTypes.object,
+    currentUser: PropTypes.object.isRequired,
+    lastPostCount: PropTypes.number,
+    commentCount: PropTypes.number.isRequired,
+    isLastComment: PropTypes.bool.isRequired,
+    handleCommentClick: PropTypes.func.isRequired,
+    handleDropdownOpened: PropTypes.func.isRequired,
+    sameUser: PropTypes.bool.isRequired,
+    compactDisplay: PropTypes.bool,
+    displayNameType: PropTypes.string,
+    useMilitaryTime: PropTypes.bool.isRequired,
+    isFlagged: PropTypes.bool.isRequired,
+    status: PropTypes.string,
+    isBusy: PropTypes.bool
 };

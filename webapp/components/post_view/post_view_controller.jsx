@@ -1,4 +1,4 @@
-// Copyright (c) 2016 Mattermost, Inc. All Rights Reserved.
+// Copyright (c) 2016-present Mattermost, Inc. All Rights Reserved.
 // See License.txt for license information.
 
 import PostList from './components/post_list.jsx';
@@ -8,6 +8,7 @@ import PreferenceStore from 'stores/preference_store.jsx';
 import UserStore from 'stores/user_store.jsx';
 import PostStore from 'stores/post_store.jsx';
 import ChannelStore from 'stores/channel_store.jsx';
+import TeamStore from 'stores/team_store.jsx';
 import WebrtcStore from 'stores/webrtc_store.jsx';
 
 import * as Utils from 'utils/utils.jsx';
@@ -15,6 +16,8 @@ import * as Utils from 'utils/utils.jsx';
 import Constants from 'utils/constants.jsx';
 const Preferences = Constants.Preferences;
 const ScrollTypes = Constants.ScrollTypes;
+
+import PropTypes from 'prop-types';
 
 import React from 'react';
 
@@ -25,6 +28,7 @@ export default class PostViewController extends React.Component {
         this.onPreferenceChange = this.onPreferenceChange.bind(this);
         this.onUserChange = this.onUserChange.bind(this);
         this.onPostsChange = this.onPostsChange.bind(this);
+        this.onTeamChange = this.onTeamChange.bind(this);
         this.onStatusChange = this.onStatusChange.bind(this);
         this.onPostsViewJumpRequest = this.onPostsViewJumpRequest.bind(this);
         this.onSetNewMessageIndicator = this.onSetNewMessageIndicator.bind(this);
@@ -55,6 +59,7 @@ export default class PostViewController extends React.Component {
             channel,
             postList: PostStore.filterPosts(channel.id, joinLeaveEnabled),
             currentUser: UserStore.getCurrentUser(),
+            currentTeamId: TeamStore.getCurrentId(),
             isBusy: WebrtcStore.isBusy(),
             profiles,
             statuses,
@@ -131,9 +136,20 @@ export default class PostViewController extends React.Component {
         this.setState({statuses: Object.assign({}, UserStore.getStatuses())});
     }
 
+    onTeamChange() {
+        const currentTeamId = TeamStore.getCurrentId();
+        if ((this.state.channel.type === Constants.OPEN_CHANNEL || this.state.channel.type === Constants.PRIVATE_CHANNEL) && this.state.channel.team_id !== currentTeamId) {
+            this.setState({
+                currentTeamId,
+                loading: true
+            });
+        }
+    }
+
     onActivate() {
         PreferenceStore.addChangeListener(this.onPreferenceChange);
         UserStore.addChangeListener(this.onUserChange);
+        TeamStore.addChangeListener(this.onTeamChange);
         UserStore.addStatusesChangeListener(this.onStatusChange);
         PostStore.addChangeListener(this.onPostsChange);
         PostStore.addPostsViewJumpListener(this.onPostsViewJumpRequest);
@@ -144,6 +160,7 @@ export default class PostViewController extends React.Component {
     onDeactivate() {
         PreferenceStore.removeChangeListener(this.onPreferenceChange);
         UserStore.removeChangeListener(this.onUserChange);
+        TeamStore.removeChangeListener(this.onTeamChange);
         UserStore.removeStatusesChangeListener(this.onStatusChange);
         PostStore.removeChangeListener(this.onPostsChange);
         PostStore.removePostsViewJumpListener(this.onPostsViewJumpRequest);
@@ -346,6 +363,7 @@ export default class PostViewController extends React.Component {
                 <PostList
                     postList={this.state.postList}
                     profiles={this.state.profiles}
+                    channelId={this.state.channel.id}
                     channel={this.state.channel}
                     currentUser={this.state.currentUser}
                     showMoreMessagesTop={!this.state.atTop}
@@ -381,6 +399,6 @@ export default class PostViewController extends React.Component {
 }
 
 PostViewController.propTypes = {
-    channel: React.PropTypes.object,
-    active: React.PropTypes.bool
+    channel: PropTypes.object,
+    active: PropTypes.bool
 };

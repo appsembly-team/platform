@@ -1,4 +1,4 @@
-// Copyright (c) 2016 Mattermost, Inc. All Rights Reserved.
+// Copyright (c) 2016-present Mattermost, Inc. All Rights Reserved.
 // See License.txt for license information.
 
 package api
@@ -205,6 +205,7 @@ func TestStatuses(t *testing.T) {
 }
 
 func TestGetStatusesByIds(t *testing.T) {
+	ReloadConfigForSetup()
 	th := Setup().InitBasic()
 	Client := th.BasicClient
 

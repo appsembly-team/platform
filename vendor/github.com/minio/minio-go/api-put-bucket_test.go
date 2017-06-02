@@ -1,5 +1,6 @@
 /*
- * Minio Go Library for Amazon S3 Compatible Cloud Storage (C) 2015, 2016 Minio, Inc.
+ * Minio Go Library for Amazon S3 Compatible Cloud Storage
+ * (C) 2015, 2016, 2017 Minio, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -24,8 +25,11 @@ import (
 	"io"
 	"io/ioutil"
 	"net/http"
-	"net/url"
+	"path"
 	"testing"
+
+	"github.com/minio/minio-go/pkg/credentials"
+	"github.com/minio/minio-go/pkg/s3signer"
 )
 
 // Tests validate http request formulated for creation of bucket.
@@ -33,14 +37,11 @@ func TestMakeBucketRequest(t *testing.T) {
 	// Generates expected http request for bucket creation.
 	// Used for asserting with the actual request generated.
 	createExpectedRequest := func(c *Client, bucketName string, location string, req *http.Request) (*http.Request, error) {
-
-		targetURL, err := url.Parse(c.endpointURL)
-		if err != nil {
-			return nil, err
-		}
-		targetURL.Path = "/" + bucketName + "/"
+		targetURL := c.endpointURL
+		targetURL.Path = path.Join(bucketName, "") + "/"
 
 		// get a new HTTP request for the method.
+		var err error
 		req, err = http.NewRequest("PUT", targetURL.String(), nil)
 		if err != nil {
 			return nil, err
@@ -49,8 +50,32 @@ func TestMakeBucketRequest(t *testing.T) {
 		// set UserAgent for the request.
 		c.setUserAgent(req)
 
+		// Get credentials from the configured credentials provider.
+		value, err := c.credsProvider.Get()
+		if err != nil {
+			return nil, err
+		}
+
+		var (
+			signerType      = value.SignerType
+			accessKeyID     = value.AccessKeyID
+			secretAccessKey = value.SecretAccessKey
+			sessionToken    = value.SessionToken
+		)
+
+		// Custom signer set then override the behavior.
+		if c.overrideSignerType != credentials.SignatureDefault {
+			signerType = c.overrideSignerType
+		}
+
+		// If signerType returned by credentials helper is anonymous,
+		// then do not sign regardless of signerType override.
+		if value.SignerType == credentials.SignatureAnonymous {
+			signerType = credentials.SignatureAnonymous
+		}
+
 		// set sha256 sum for signature calculation only with signature version '4'.
-		if c.signature.isV4() {
+		if signerType.IsV4() {
 			req.Header.Set("X-Amz-Content-Sha256", hex.EncodeToString(sum256([]byte{})))
 		}
 
@@ -68,19 +93,19 @@ func TestMakeBucketRequest(t *testing.T) {
 			req.ContentLength = int64(len(createBucketConfigBytes))
 			// Set content-md5.
 			req.Header.Set("Content-Md5", base64.StdEncoding.EncodeToString(sumMD5(createBucketConfigBytes)))
-			if c.signature.isV4() {
+			if signerType.IsV4() {
 				// Set sha256.
 				req.Header.Set("X-Amz-Content-Sha256", hex.EncodeToString(sum256(createBucketConfigBytes)))
 			}
 		}
 
 		// Sign the request.
-		if c.signature.isV4() {
+		if signerType.IsV4() {
 			// Signature calculated for MakeBucket request should be for 'us-east-1',
 			// regardless of the bucket's location constraint.
-			req = signV4(*req, c.accessKeyID, c.secretAccessKey, "us-east-1")
-		} else if c.signature.isV2() {
-			req = signV2(*req, c.accessKeyID, c.secretAccessKey)
+			req = s3signer.SignV4(*req, accessKeyID, secretAccessKey, sessionToken, "us-east-1")
+		} else if signerType.IsV2() {
+			req = s3signer.SignV2(*req, accessKeyID, secretAccessKey)
 		}
 
 		// Return signed request.
@@ -247,7 +272,7 @@ func TestMakeBucketRequest(t *testing.T) {
 			}
 
 			if expectedReq.Header.Get("X-Amz-Content-Sha256") != actualReq.Header.Get("X-Amz-Content-Sha256") {
-				t.Errorf("Test %d: 'X-Amz-Content-Sha256' header of the expected request doesn't match with that of the actual request", i+1)
+				t.Errorf("Test %d: 'X-Amz-Content-Sha256' header of the expected request %s doesn't match with that of the actual request %s", i+1, expectedReq.Header.Get("X-Amz-Content-Sha256"), actualReq.Header.Get("X-Amz-Content-Sha256"))
 			}
 			if expectedReq.Header.Get("User-Agent") != actualReq.Header.Get("User-Agent") {
 				t.Errorf("Test %d: Expected 'User-Agent' header to be \"%s\",but found \"%s\" instead", i+1, expectedReq.Header.Get("User-Agent"), actualReq.Header.Get("User-Agent"))

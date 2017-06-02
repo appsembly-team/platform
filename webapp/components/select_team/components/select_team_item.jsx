@@ -1,17 +1,21 @@
-// Copyright (c) 2016 Mattermost, Inc. All Rights Reserved.
+import PropTypes from 'prop-types';
+
+// Copyright (c) 2016-present Mattermost, Inc. All Rights Reserved.
 // See License.txt for license information.
 
 import React from 'react';
 
 import {Link} from 'react-router/es6';
 import {Tooltip, OverlayTrigger} from 'react-bootstrap';
+import {Constants} from 'utils/constants.jsx';
+import * as Utils from 'utils/utils.jsx';
 
 export default class SelectTeamItem extends React.Component {
     static propTypes = {
-        team: React.PropTypes.object.isRequired,
-        url: React.PropTypes.string.isRequired,
-        onTeamClick: React.PropTypes.func.isRequired,
-        loading: React.PropTypes.bool.isRequired
+        team: PropTypes.object.isRequired,
+        url: PropTypes.string.isRequired,
+        onTeamClick: PropTypes.func.isRequired,
+        loading: PropTypes.bool.isRequired
     };
 
     constructor(props) {
@@ -26,6 +30,7 @@ export default class SelectTeamItem extends React.Component {
 
     render() {
         let icon;
+        const infoIcon = Constants.TEAM_INFO_SVG;
         if (this.props.loading) {
             icon = (
                 <span className='fa fa-refresh fa-spin right signup-team__icon'/>
@@ -49,11 +54,14 @@ export default class SelectTeamItem extends React.Component {
                 <OverlayTrigger
                     trigger={['hover', 'focus', 'click']}
                     delayShow={1000}
-                    placement='left'
+                    placement='top'
                     overlay={descriptionTooltip}
                     ref='descriptionOverlay'
                 >
-                    <span className='fa fa-info-circle signup-team__icon'/>
+                    <span
+                        className='icon icon--info'
+                        dangerouslySetInnerHTML={{__html: infoIcon}}
+                    />
                 </OverlayTrigger>
             );
         }
@@ -62,6 +70,7 @@ export default class SelectTeamItem extends React.Component {
             <div className='signup-team-dir'>
                 {showDescriptionTooltip}
                 <Link
+                    id={Utils.createSafeId(this.props.team.display_name)}
                     to={this.props.url}
                     onClick={this.handleTeamClick}
                 >

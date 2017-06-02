@@ -1,11 +1,10 @@
-// Copyright (c) 2016 Mattermost, Inc. All Rights Reserved.
+// Copyright (c) 2016-present Mattermost, Inc. All Rights Reserved.
 // See License.txt for license information.
 
 package main
 
 import (
 	"errors"
-	"flag"
 	"fmt"
 	"os"
 
@@ -15,42 +14,41 @@ import (
 	// Plugins
 	_ "github.com/mattermost/platform/model/gitlab"
 
+	// Enterprise Imports
+	_ "github.com/mattermost/platform/imports"
+
 	// Enterprise Deps
 	_ "github.com/dgryski/dgoogauth"
 	_ "github.com/go-ldap/ldap"
 	_ "github.com/mattermost/rsc/qr"
+
+	// Tmp deps for adding
+	_ "github.com/dimchansky/utfbom"
+	_ "github.com/hashicorp/memberlist"
+	_ "gopkg.in/gomail.v2"
+	_ "gopkg.in/olivere/elastic.v5"
 )
 
-//ENTERPRISE_IMPORTS
-
 func main() {
-	var rootCmd = &cobra.Command{
-		Use:   "platform",
-		Short: "Open source, self-hosted Slack-alternative",
-		Long:  `Mattermost offers workplace messaging across web, PC and phones with archiving, search and integration with your existing systems. Documentation available at https://docs.mattermost.com`,
-		RunE:  runServerCmd,
+	if err := rootCmd.Execute(); err != nil {
+		os.Exit(1)
 	}
+}
+
+func init() {
 	rootCmd.PersistentFlags().StringP("config", "c", "config.json", "Configuration file to use.")
+	rootCmd.PersistentFlags().Bool("disableconfigwatch", false, "When set config.json will not be loaded from disk when the file is changed.")
 
 	resetCmd.Flags().Bool("confirm", false, "Confirm you really want to delete everything and a DB backup has been performed.")
 
-	rootCmd.AddCommand(serverCmd, versionCmd, userCmd, teamCmd, licenseCmd, importCmd, resetCmd, channelCmd, rolesCmd, testCmd, ldapCmd)
+	rootCmd.AddCommand(serverCmd, versionCmd, userCmd, teamCmd, licenseCmd, importCmd, resetCmd, channelCmd, rolesCmd, testCmd, ldapCmd, configCmd)
+}
 
-	flag.Usage = func() {
-		rootCmd.Usage()
-	}
-	parseCmds()
-
-	if flagRunCmds {
-		CommandPrintErrorln("---------------------------------------------------------------------------------------------")
-		CommandPrintErrorln("DEPRECATED! All previous commands are now deprecated. Run: platform help to see the new ones.")
-		CommandPrintErrorln("---------------------------------------------------------------------------------------------")
-		doLegacyCommands()
-	} else {
-		if err := rootCmd.Execute(); err != nil {
-			os.Exit(1)
-		}
-	}
+var rootCmd = &cobra.Command{
+	Use:   "platform",
+	Short: "Open source, self-hosted Slack-alternative",
+	Long:  `Mattermost offers workplace messaging across web, PC and phones with archiving, search and integration with your existing systems. Documentation available at https://docs.mattermost.com`,
+	RunE:  runServerCmd,
 }
 
 var resetCmd = &cobra.Command{
@@ -61,7 +59,9 @@ var resetCmd = &cobra.Command{
 }
 
 func resetCmdF(cmd *cobra.Command, args []string) error {
-	initDBCommandContextCobra(cmd)
+	if err := initDBCommandContextCobra(cmd); err != nil {
+		return err
+	}
 
 	confirmFlag, _ := cmd.Flags().GetBool("confirm")
 	if !confirmFlag {

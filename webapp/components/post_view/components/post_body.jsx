@@ -1,9 +1,10 @@
-// Copyright (c) 2015 Mattermost, Inc. All Rights Reserved.
+// Copyright (c) 2015-present Mattermost, Inc. All Rights Reserved.
 // See License.txt for license information.
 
 import UserStore from 'stores/user_store.jsx';
 import * as Utils from 'utils/utils.jsx';
 import * as GlobalActions from 'actions/global_actions.jsx';
+import * as PostUtils from 'utils/post_utils.jsx';
 import Constants from 'utils/constants.jsx';
 import CommentedOnFilesMessageContainer from './commented_on_files_message_container.jsx';
 import FileAttachmentListContainer from 'components/file_attachment_list_container.jsx';
@@ -15,6 +16,8 @@ import ReactionListContainer from './reaction_list_container.jsx';
 import {FormattedMessage} from 'react-intl';
 
 import loadingGif from 'images/load.gif';
+
+import PropTypes from 'prop-types';
 
 import React from 'react';
 
@@ -47,6 +50,10 @@ export default class PostBody extends React.Component {
         }
 
         if (nextProps.handleCommentClick.toString() !== this.props.handleCommentClick.toString()) {
+            return true;
+        }
+
+        if (nextProps.lastPostCount !== this.props.lastPostCount) {
             return true;
         }
 
@@ -141,6 +148,10 @@ export default class PostBody extends React.Component {
             );
         }
 
+        if (PostUtils.isEdited(this.props.post)) {
+            postClass += ' post--edited';
+        }
+
         let fileAttachmentHolder = null;
         if (((post.file_ids && post.file_ids.length > 0) || (post.filenames && post.filenames.length > 0)) && this.props.post.state !== Constants.POST_DELETED) {
             fileAttachmentHolder = (
@@ -151,22 +162,6 @@ export default class PostBody extends React.Component {
             );
         }
 
-        let message;
-        if (this.props.post.state === Constants.POST_DELETED) {
-            message = (
-                <p>
-                    <FormattedMessage
-                        id='post_body.deleted'
-                        defaultMessage='(message deleted)'
-                    />
-                </p>
-            );
-        } else {
-            message = (
-                <PostMessageContainer post={this.props.post}/>
-            );
-        }
-
         const messageWrapper = (
             <div
                 key={`${post.id}_message`}
@@ -174,7 +169,10 @@ export default class PostBody extends React.Component {
                 className={postClass}
             >
                 {loading}
-                {message}
+                <PostMessageContainer
+                    lastPostCount={this.props.lastPostCount}
+                    post={this.props.post}
+                />
             </div>
         );
 
@@ -188,6 +186,7 @@ export default class PostBody extends React.Component {
                     message={messageWrapper}
                     compactDisplay={this.props.compactDisplay}
                     previewCollapsed={this.props.previewCollapsed}
+                    childComponentDidUpdateFunction={this.props.childComponentDidUpdateFunction}
                 />
             );
         }
@@ -203,10 +202,7 @@ export default class PostBody extends React.Component {
                 <div className={'post__body ' + mentionHighlightClass}>
                     {messageWithAdditionalContent}
                     {fileAttachmentHolder}
-                    <ReactionListContainer
-                        post={post}
-                        currentUserId={this.props.currentUser.id}
-                    />
+                    <ReactionListContainer post={post}/>
                 </div>
             </div>
         );
@@ -214,12 +210,14 @@ export default class PostBody extends React.Component {
 }
 
 PostBody.propTypes = {
-    post: React.PropTypes.object.isRequired,
-    currentUser: React.PropTypes.object.isRequired,
-    parentPost: React.PropTypes.object,
-    retryPost: React.PropTypes.func,
-    handleCommentClick: React.PropTypes.func.isRequired,
-    compactDisplay: React.PropTypes.bool,
-    previewCollapsed: React.PropTypes.string,
-    isCommentMention: React.PropTypes.bool
+    post: PropTypes.object.isRequired,
+    currentUser: PropTypes.object.isRequired,
+    parentPost: PropTypes.object,
+    retryPost: PropTypes.func,
+    lastPostCount: PropTypes.number,
+    handleCommentClick: PropTypes.func.isRequired,
+    compactDisplay: PropTypes.bool,
+    previewCollapsed: PropTypes.string,
+    isCommentMention: PropTypes.bool,
+    childComponentDidUpdateFunction: PropTypes.func
 };

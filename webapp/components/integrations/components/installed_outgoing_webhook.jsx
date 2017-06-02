@@ -1,4 +1,6 @@
-// Copyright (c) 2016 Mattermost, Inc. All Rights Reserved.
+import PropTypes from 'prop-types';
+
+// Copyright (c) 2016-present Mattermost, Inc. All Rights Reserved.
 // See License.txt for license information.
 
 import React from 'react';
@@ -6,16 +8,20 @@ import React from 'react';
 import ChannelStore from 'stores/channel_store.jsx';
 
 import {FormattedMessage} from 'react-intl';
+import {Link} from 'react-router';
+
+import DeleteIntegration from './delete_integration.jsx';
 
 export default class InstalledOutgoingWebhook extends React.Component {
     static get propTypes() {
         return {
-            outgoingWebhook: React.PropTypes.object.isRequired,
-            onRegenToken: React.PropTypes.func.isRequired,
-            onDelete: React.PropTypes.func.isRequired,
-            filter: React.PropTypes.string,
-            creator: React.PropTypes.object.isRequired,
-            canChange: React.PropTypes.bool.isRequired
+            outgoingWebhook: PropTypes.object.isRequired,
+            onRegenToken: PropTypes.func.isRequired,
+            onDelete: PropTypes.func.isRequired,
+            filter: PropTypes.string,
+            creator: PropTypes.object.isRequired,
+            canChange: PropTypes.bool.isRequired,
+            team: PropTypes.object.isRequired
         };
     }
 
@@ -32,9 +38,7 @@ export default class InstalledOutgoingWebhook extends React.Component {
         this.props.onRegenToken(this.props.outgoingWebhook);
     }
 
-    handleDelete(e) {
-        e.preventDefault();
-
+    handleDelete() {
         this.props.onDelete(this.props.outgoingWebhook);
     }
 
@@ -161,15 +165,17 @@ export default class InstalledOutgoingWebhook extends React.Component {
                         />
                     </a>
                     {' - '}
-                    <a
-                        href='#'
-                        onClick={this.handleDelete}
-                    >
+                    <Link to={`/${this.props.team.name}/integrations/outgoing_webhooks/edit?id=${outgoingWebhook.id}`}>
                         <FormattedMessage
-                            id='installed_integrations.delete'
-                            defaultMessage='Delete'
+                            id='installed_integrations.edit'
+                            defaultMessage='Edit'
                         />
-                    </a>
+                    </Link>
+                    {' - '}
+                    <DeleteIntegration
+                        messageId='installed_outgoing_webhooks.delete.confirm'
+                        onDelete={this.handleDelete}
+                    />
                 </div>
             );
         }

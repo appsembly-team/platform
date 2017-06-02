@@ -1,4 +1,4 @@
-// Copyright (c) 2015 Mattermost, Inc. All Rights Reserved.
+// Copyright (c) 2015-present Mattermost, Inc. All Rights Reserved.
 // See License.txt for license information.
 
 import ReactDOM from 'react-dom';
@@ -8,6 +8,7 @@ import FileUpload from './file_upload.jsx';
 import FilePreview from './file_preview.jsx';
 import PostDeletedModal from './post_deleted_modal.jsx';
 import TutorialTip from './tutorial/tutorial_tip.jsx';
+import EmojiPicker from './emoji_picker/emoji_picker.jsx';
 
 import AppDispatcher from 'dispatcher/app_dispatcher.jsx';
 import * as GlobalActions from 'actions/global_actions.jsx';
@@ -22,10 +23,11 @@ import PostStore from 'stores/post_store.jsx';
 import MessageHistoryStore from 'stores/message_history_store.jsx';
 import UserStore from 'stores/user_store.jsx';
 import PreferenceStore from 'stores/preference_store.jsx';
+import ConfirmModal from './confirm_modal.jsx';
 
 import Constants from 'utils/constants.jsx';
 
-import {FormattedHTMLMessage} from 'react-intl';
+import {FormattedHTMLMessage, FormattedMessage} from 'react-intl';
 import {browserHistory} from 'react-router/es6';
 
 const Preferences = Constants.Preferences;
@@ -36,6 +38,7 @@ const KeyCodes = Constants.KeyCodes;
 import React from 'react';
 
 export const REACTION_PATTERN = /^(\+|-):([^:\s]+):\s*$/;
+export const EMOJI_PATTERN = /:[A-Za-z-_0-9]*:/g;
 
 export default class CreatePost extends React.Component {
     constructor(props) {
@@ -43,10 +46,11 @@ export default class CreatePost extends React.Component {
 
         this.lastTime = 0;
 
+        this.doSubmit = this.doSubmit.bind(this);
         this.handleSubmit = this.handleSubmit.bind(this);
         this.postMsgKeyPress = this.postMsgKeyPress.bind(this);
         this.handleChange = this.handleChange.bind(this);
-        this.handleUploadClick = this.handleUploadClick.bind(this);
+        this.handleFileUploadChange = this.handleFileUploadChange.bind(this);
         this.handleUploadStart = this.handleUploadStart.bind(this);
         this.handleFileUploadComplete = this.handleFileUploadComplete.bind(this);
         this.handleUploadError = this.handleUploadError.bind(this);
@@ -54,6 +58,7 @@ export default class CreatePost extends React.Component {
         this.onChange = this.onChange.bind(this);
         this.onPreferenceChange = this.onPreferenceChange.bind(this);
         this.getFileCount = this.getFileCount.bind(this);
+        this.getFileUploadTarget = this.getFileUploadTarget.bind(this);
         this.handleKeyDown = this.handleKeyDown.bind(this);
         this.handleBlur = this.handleBlur.bind(this);
         this.sendMessage = this.sendMessage.bind(this);
@@ -61,14 +66,25 @@ export default class CreatePost extends React.Component {
         this.showPostDeletedModal = this.showPostDeletedModal.bind(this);
         this.hidePostDeletedModal = this.hidePostDeletedModal.bind(this);
         this.showShortcuts = this.showShortcuts.bind(this);
+        this.handleEmojiClick = this.handleEmojiClick.bind(this);
+        this.handleEmojiPickerClick = this.handleEmojiPickerClick.bind(this);
         this.handlePostError = this.handlePostError.bind(this);
+        this.closeEmoji = this.closeEmoji.bind(this);
+        this.hideNotifyAllModal = this.hideNotifyAllModal.bind(this);
+        this.showNotifyAllModal = this.showNotifyAllModal.bind(this);
+        this.handleNotifyModalCancel = this.handleNotifyModalCancel.bind(this);
+        this.handleNotifyAllConfirmation = this.handleNotifyAllConfirmation.bind(this);
 
         PostStore.clearDraftUploads();
 
-        const draft = PostStore.getCurrentDraft();
+        const channelId = ChannelStore.getCurrentId();
+        const draft = PostStore.getPostDraft(channelId);
+
+        const stats = ChannelStore.getCurrentStats();
+        const members = stats.member_count - 1;
 
         this.state = {
-            channelId: ChannelStore.getCurrentId(),
+            channelId,
             message: draft.message,
             uploadsInProgress: draft.uploadsInProgress,
             fileInfos: draft.fileInfos,
@@ -76,7 +92,12 @@ export default class CreatePost extends React.Component {
             ctrlSend: PreferenceStore.getBool(Constants.Preferences.CATEGORY_ADVANCED_SETTINGS, 'send_on_ctrl_enter'),
             fullWidthTextBox: PreferenceStore.get(Preferences.CATEGORY_DISPLAY_SETTINGS, Preferences.CHANNEL_DISPLAY_MODE, Preferences.CHANNEL_DISPLAY_MODE_DEFAULT) === Preferences.CHANNEL_DISPLAY_MODE_FULL_SCREEN,
             showTutorialTip: false,
-            showPostDeletedModal: false
+            showPostDeletedModal: false,
+            enableSendButton: false,
+            showEmojiPicker: false,
+            emojiPickerEnabled: Utils.isFeatureEnabled(Constants.PRE_RELEASE_FEATURES.EMOJI_PICKER_PREVIEW),
+            showConfirmModal: false,
+            totalMembers: members
         };
 
         this.lastBlurAt = 0;
@@ -86,12 +107,20 @@ export default class CreatePost extends React.Component {
         this.setState({postError});
     }
 
-    handleSubmit(e) {
-        e.preventDefault();
-
-        if (this.state.uploadsInProgress.length > 0 || this.state.submitting) {
-            return;
+    closeEmoji(clickEvent) {
+        /*
+         if the user clicked something outside the component, except the main emojipicker icon
+         and the picker is open, then close it
+         */
+        if (clickEvent && clickEvent.srcElement &&
+            clickEvent.srcElement.className.indexOf('emoji-main') === -1 &&
+            this.state.showEmojiPicker) {
+            this.setState({showEmojiPicker: !this.state.showEmojiPicker});
         }
+    }
+
+    doSubmit(e) {
+        e.preventDefault();
 
         const post = {};
         post.file_ids = [];
@@ -115,8 +144,8 @@ export default class CreatePost extends React.Component {
 
         const isReaction = REACTION_PATTERN.exec(post.message);
         if (post.message.indexOf('/') === 0) {
-            PostStore.storeDraft(this.state.channelId, null);
-            this.setState({message: '', postError: null, fileInfos: []});
+            PostActions.storePostDraft(this.state.channelId, null);
+            this.setState({message: '', postError: null, fileInfos: [], enableSendButton: false});
 
             const args = {};
             args.channel_id = this.state.channelId;
@@ -132,7 +161,11 @@ export default class CreatePost extends React.Component {
                     }
 
                     if (data.goto_location && data.goto_location.length > 0) {
-                        browserHistory.push(data.goto_location);
+                        if (data.goto_location.startsWith('/') || data.goto_location.includes(window.location.hostname)) {
+                            browserHistory.push(data.goto_location);
+                        } else {
+                            window.open(data.goto_location);
+                        }
                     }
                 },
                 (err) => {
@@ -152,12 +185,48 @@ export default class CreatePost extends React.Component {
             this.sendMessage(post);
         }
 
-        this.setState({message: '', submitting: false, postError: null, fileInfos: [], serverError: null});
+        this.setState({
+            message: '',
+            submitting: false,
+            postError: null,
+            fileInfos: [],
+            serverError: null,
+            enableSendButton: false
+        });
 
         const fasterThanHumanWillClick = 150;
         const forceFocus = (Date.now() - this.lastBlurAt < fasterThanHumanWillClick);
 
         this.focusTextbox(forceFocus);
+    }
+
+    handleNotifyAllConfirmation(e) {
+        this.hideNotifyAllModal();
+        this.doSubmit(e);
+    }
+
+    hideNotifyAllModal() {
+        this.setState({showConfirmModal: false});
+    }
+
+    showNotifyAllModal() {
+        this.setState({showConfirmModal: true});
+    }
+
+    handleSubmit(e) {
+        const stats = ChannelStore.getCurrentStats();
+        const members = stats.member_count - 1;
+
+        if ((this.state.message.includes('@all') || this.state.message.includes('@channel')) && members >= Constants.NOTIFY_ALL_MEMBERS) {
+            this.setState({totalMembers: members});
+            this.showNotifyAllModal();
+            return;
+        }
+        this.doSubmit(e);
+    }
+
+    handleNotifyModalCancel() {
+        this.setState({showConfirmModal: false});
     }
 
     sendMessage(post) {
@@ -172,6 +241,14 @@ export default class CreatePost extends React.Component {
         post.parent_id = this.state.parentId;
 
         GlobalActions.emitUserPostedEvent(post);
+
+        // parse message and emit emoji event
+        const emojiResult = post.message.match(EMOJI_PATTERN);
+        if (emojiResult) {
+            emojiResult.forEach((emoji) => {
+                PostActions.emitEmojiPosted(emoji);
+            });
+        }
 
         PostActions.queuePost(post, false, null,
             (err) => {
@@ -193,15 +270,15 @@ export default class CreatePost extends React.Component {
         const action = isReaction[1];
 
         const emojiName = isReaction[2];
-        const postId = PostStore.getLatestPost(this.state.channelId).id;
+        const postId = PostStore.getLatestNonEphemeralPost(this.state.channelId).id;
 
-        if (action === '+') {
+        if (postId && action === '+') {
             PostActions.addReaction(this.state.channelId, postId, emojiName);
-        } else if (action === '-') {
+        } else if (postId && action === '-') {
             PostActions.removeReaction(this.state.channelId, postId, emojiName);
         }
 
-        PostStore.storeCurrentDraft(null);
+        PostActions.storePostDraft(this.state.channelId, null);
     }
 
     focusTextbox(keepFocus = false) {
@@ -224,22 +301,27 @@ export default class CreatePost extends React.Component {
 
     handleChange(e) {
         const message = e.target.value;
-        this.setState({message});
+        const enableSendButton = this.handleEnableSendButton(message, this.state.fileInfos);
 
-        const draft = PostStore.getCurrentDraft();
+        this.setState({
+            message,
+            enableSendButton
+        });
+
+        const draft = PostStore.getPostDraft(this.state.channelId);
         draft.message = message;
-        PostStore.storeCurrentDraft(draft);
+        PostActions.storePostDraft(this.state.channelId, draft);
     }
 
-    handleUploadClick() {
-        this.focusTextbox();
+    handleFileUploadChange() {
+        this.focusTextbox(true);
     }
 
     handleUploadStart(clientIds, channelId) {
-        const draft = PostStore.getDraft(channelId);
+        const draft = PostStore.getPostDraft(channelId);
 
         draft.uploadsInProgress = draft.uploadsInProgress.concat(clientIds);
-        PostStore.storeDraft(channelId, draft);
+        PostActions.storePostDraft(channelId, draft);
 
         this.setState({uploadsInProgress: draft.uploadsInProgress});
 
@@ -249,7 +331,7 @@ export default class CreatePost extends React.Component {
     }
 
     handleFileUploadComplete(fileInfos, clientIds, channelId) {
-        const draft = PostStore.getDraft(channelId);
+        const draft = PostStore.getPostDraft(channelId);
 
         // remove each finished file from uploads
         for (let i = 0; i < clientIds.length; i++) {
@@ -261,10 +343,14 @@ export default class CreatePost extends React.Component {
         }
 
         draft.fileInfos = draft.fileInfos.concat(fileInfos);
-        PostStore.storeDraft(channelId, draft);
+        PostActions.storePostDraft(channelId, draft);
 
         if (channelId === this.state.channelId) {
-            this.setState({uploadsInProgress: draft.uploadsInProgress, fileInfos: draft.fileInfos});
+            this.setState({
+                uploadsInProgress: draft.uploadsInProgress,
+                fileInfos: draft.fileInfos,
+                enableSendButton: true
+            });
         }
     }
 
@@ -276,14 +362,14 @@ export default class CreatePost extends React.Component {
         }
 
         if (clientId !== -1) {
-            const draft = PostStore.getDraft(channelId);
+            const draft = PostStore.getPostDraft(channelId);
 
             const index = draft.uploadsInProgress.indexOf(clientId);
             if (index !== -1) {
                 draft.uploadsInProgress.splice(index, 1);
             }
 
-            PostStore.storeDraft(channelId, draft);
+            PostActions.storePostDraft(channelId, draft);
 
             if (channelId === this.state.channelId) {
                 this.setState({uploadsInProgress: draft.uploadsInProgress});
@@ -313,22 +399,27 @@ export default class CreatePost extends React.Component {
             fileInfos.splice(index, 1);
         }
 
-        const draft = PostStore.getCurrentDraft();
+        const draft = PostStore.getPostDraft(this.state.channelId);
         draft.fileInfos = fileInfos;
         draft.uploadsInProgress = uploadsInProgress;
-        PostStore.storeCurrentDraft(draft);
+        PostActions.storePostDraft(this.state.channelId, draft);
+        const enableSendButton = this.handleEnableSendButton(this.state.message, fileInfos);
 
-        this.setState({fileInfos, uploadsInProgress});
+        this.setState({fileInfos, uploadsInProgress, enableSendButton});
+
+        this.handleFileUploadChange();
     }
 
     componentWillMount() {
         const tutorialStep = PreferenceStore.getInt(Preferences.TUTORIAL_STEP, UserStore.getCurrentId(), 999);
+        const enableSendButton = this.handleEnableSendButton(this.state.message, this.state.fileInfos);
 
         // wait to load these since they may have changed since the component was constructed (particularly in the case of skipping the tutorial)
         this.setState({
             ctrlSend: PreferenceStore.getBool(Preferences.CATEGORY_ADVANCED_SETTINGS, 'send_on_ctrl_enter'),
             fullWidthTextBox: PreferenceStore.get(Preferences.CATEGORY_DISPLAY_SETTINGS, Preferences.CHANNEL_DISPLAY_MODE, Preferences.CHANNEL_DISPLAY_MODE_DEFAULT) === Preferences.CHANNEL_DISPLAY_MODE_FULL_SCREEN,
-            showTutorialTip: tutorialStep === TutorialSteps.POST_POPOVER
+            showTutorialTip: tutorialStep === TutorialSteps.POST_POPOVER,
+            enableSendButton
         });
     }
 
@@ -353,6 +444,10 @@ export default class CreatePost extends React.Component {
     }
 
     showShortcuts(e) {
+        if (e.which === Constants.KeyCodes.ESCAPE && this.state.showEmojiPicker === true) {
+            this.setState({showEmojiPicker: !this.state.showEmojiPicker});
+        }
+
         if ((e.ctrlKey || e.metaKey) && e.keyCode === Constants.KeyCodes.FORWARD_SLASH) {
             e.preventDefault();
             const args = {};
@@ -374,7 +469,7 @@ export default class CreatePost extends React.Component {
     onChange() {
         const channelId = ChannelStore.getCurrentId();
         if (this.state.channelId !== channelId) {
-            const draft = PostStore.getCurrentDraft();
+            const draft = PostStore.getPostDraft(channelId);
 
             this.setState({channelId, message: draft.message, submitting: false, serverError: null, postError: null, fileInfos: draft.fileInfos, uploadsInProgress: draft.uploadsInProgress});
         }
@@ -385,7 +480,8 @@ export default class CreatePost extends React.Component {
         this.setState({
             showTutorialTip: tutorialStep === TutorialSteps.POST_POPOVER,
             ctrlSend: PreferenceStore.getBool(Preferences.CATEGORY_ADVANCED_SETTINGS, 'send_on_ctrl_enter'),
-            fullWidthTextBox: PreferenceStore.get(Preferences.CATEGORY_DISPLAY_SETTINGS, Preferences.CHANNEL_DISPLAY_MODE, Preferences.CHANNEL_DISPLAY_MODE_DEFAULT) === Preferences.CHANNEL_DISPLAY_MODE_FULL_SCREEN
+            fullWidthTextBox: PreferenceStore.get(Preferences.CATEGORY_DISPLAY_SETTINGS, Preferences.CHANNEL_DISPLAY_MODE, Preferences.CHANNEL_DISPLAY_MODE_DEFAULT) === Preferences.CHANNEL_DISPLAY_MODE_FULL_SCREEN,
+            emojiPickerEnabled: Utils.isFeatureEnabled(Constants.PRE_RELEASE_FEATURES.EMOJI_PICKER_PREVIEW)
         });
     }
 
@@ -394,8 +490,12 @@ export default class CreatePost extends React.Component {
             return this.state.fileInfos.length + this.state.uploadsInProgress.length;
         }
 
-        const draft = PostStore.getDraft(channelId);
+        const draft = PostStore.getPostDraft(channelId);
         return draft.fileInfos.length + draft.uploadsInProgress.length;
+    }
+
+    getFileUploadTarget() {
+        return this.refs.textbox;
     }
 
     handleKeyDown(e) {
@@ -458,6 +558,31 @@ export default class CreatePost extends React.Component {
         });
     }
 
+    handleEmojiClick(emoji) {
+        const emojiAlias = emoji.name || emoji.aliases[0];
+
+        if (!emojiAlias) {
+            //Oops.. There went something wrong
+            return;
+        }
+
+        if (this.state.message === '') {
+            this.setState({message: ':' + emojiAlias + ': ', showEmojiPicker: false});
+        } else {
+            //check whether there is already a blank at the end of the current message
+            const newMessage = (/\s+$/.test(this.state.message)) ?
+                this.state.message + ':' + emojiAlias + ': ' : this.state.message + ' :' + emojiAlias + ': ';
+
+            this.setState({message: newMessage, showEmojiPicker: false});
+        }
+
+        this.focusTextbox();
+    }
+
+    handleEmojiPickerClick() {
+        this.setState({showEmojiPicker: !this.state.showEmojiPicker});
+    }
+
     createTutorialTip() {
         const screens = [];
 
@@ -475,11 +600,40 @@ export default class CreatePost extends React.Component {
                 placement='top'
                 screens={screens}
                 overlayClass='tip-overlay--chat'
+                diagnosticsTag='tutorial_tip_1_sending_messages'
             />
         );
     }
 
+    handleEnableSendButton(message, fileInfos) {
+        return message.trim().length !== 0 || fileInfos.length !== 0;
+    }
+
     render() {
+        const notifyAllTitle = (
+            <FormattedMessage
+                id='notify_all.title.confirm'
+                defaultMessage='Confirm sending notifications to entire channel'
+            />
+        );
+
+        const notifyAllConfirm = (
+            <FormattedMessage
+                id='notify_all.confirm'
+                defaultMessage='Confirm'
+            />
+        );
+
+        const notifyAllMessage = (
+            <FormattedMessage
+                id='notify_all.question'
+                defaultMessage='By using @all or @channel you are about to send notifications to {totalMembers} people. Are you sure you want to do this?'
+                values={{
+                    totalMembers: this.state.totalMembers
+                }}
+            />
+        );
+
         let serverError = null;
         if (this.state.serverError) {
             serverError = (
@@ -521,6 +675,27 @@ export default class CreatePost extends React.Component {
             centerClass = 'center';
         }
 
+        let sendButtonClass = 'send-button theme';
+        if (!this.state.enableSendButton) {
+            sendButtonClass += ' disabled';
+        }
+        let emojiPicker = null;
+        if (this.state.showEmojiPicker) {
+            emojiPicker = (
+                <EmojiPicker
+                    onEmojiClick={this.handleEmojiClick}
+                    pickerLocation='top'
+                    outsideClick={this.closeEmoji}
+
+                />
+            );
+        }
+
+        let attachmentsDisabled = '';
+        if (global.window.mm_config.EnableFileAttachments === 'false') {
+            attachmentsDisabled = ' post-create--attachment-disabled';
+        }
+
         return (
             <form
                 id='create_post'
@@ -529,7 +704,7 @@ export default class CreatePost extends React.Component {
                 className={centerClass}
                 onSubmit={this.handleSubmit}
             >
-                <div className='post-create'>
+                <div className={'post-create' + attachmentsDisabled}>
                     <div className='post-create-body'>
                         <div className='post-body__cell'>
                             <Textbox
@@ -539,24 +714,31 @@ export default class CreatePost extends React.Component {
                                 handlePostError={this.handlePostError}
                                 value={this.state.message}
                                 onBlur={this.handleBlur}
+                                emojiEnabled={this.state.emojiPickerEnabled}
                                 createMessage={Utils.localizeMessage('create_post.write', 'Write a message...')}
                                 channelId={this.state.channelId}
                                 id='post_textbox'
                                 ref='textbox'
                             />
+                            <FileUpload
+                                ref='fileUpload'
+                                getFileCount={this.getFileCount}
+                                getTarget={this.getFileUploadTarget}
+                                onFileUploadChange={this.handleFileUploadChange}
+                                onUploadStart={this.handleUploadStart}
+                                onFileUpload={this.handleFileUploadComplete}
+                                onUploadError={this.handleUploadError}
+                                postType='post'
+                                channelId=''
+                                onEmojiClick={this.handleEmojiPickerClick}
+                                emojiEnabled={this.state.emojiPickerEnabled}
+                                navBarName='main'
+                            />
+
+                            {emojiPicker}
                         </div>
-                        <FileUpload
-                            ref='fileUpload'
-                            getFileCount={this.getFileCount}
-                            onClick={this.handleUploadClick}
-                            onUploadStart={this.handleUploadStart}
-                            onFileUpload={this.handleFileUploadComplete}
-                            onUploadError={this.handleUploadError}
-                            postType='post'
-                            channelId=''
-                        />
                         <a
-                            className='send-button theme'
+                            className={sendButtonClass}
                             onClick={this.handleSubmit}
                         >
                             <i className='fa fa-paper-plane'/>
@@ -576,6 +758,14 @@ export default class CreatePost extends React.Component {
                 <PostDeletedModal
                     show={this.state.showPostDeletedModal}
                     onHide={this.hidePostDeletedModal}
+                />
+                <ConfirmModal
+                    title={notifyAllTitle}
+                    message={notifyAllMessage}
+                    confirmButton={notifyAllConfirm}
+                    show={this.state.showConfirmModal}
+                    onConfirm={this.handleNotifyAllConfirmation}
+                    onCancel={this.handleNotifyModalCancel}
                 />
             </form>
         );

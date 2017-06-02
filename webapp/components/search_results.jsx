@@ -1,9 +1,8 @@
-// Copyright (c) 2015 Mattermost, Inc. All Rights Reserved.
+// Copyright (c) 2015-present Mattermost, Inc. All Rights Reserved.
 // See License.txt for license information.
 
 import SearchResultsHeader from './search_results_header.jsx';
 import SearchResultsItem from './search_results_item.jsx';
-import SearchBox from './search_bar.jsx';
 
 import ChannelStore from 'stores/channel_store.jsx';
 import SearchStore from 'stores/search_store.jsx';
@@ -16,6 +15,7 @@ import Constants from 'utils/constants.jsx';
 const Preferences = Constants.Preferences;
 
 import $ from 'jquery';
+import PropTypes from 'prop-types';
 import React from 'react';
 import {FormattedMessage, FormattedHTMLMessage} from 'react-intl';
 
@@ -168,11 +168,6 @@ export default class SearchResults extends React.Component {
 
     render() {
         var results = this.state.results;
-        var currentId = UserStore.getCurrentId();
-        var searchForm = null;
-        if (currentId) {
-            searchForm = <SearchBox/>;
-        }
         var noResults = (!results || !results.order || !results.order.length);
         const searchTerm = this.state.searchTerm;
         const profiles = this.state.profiles || {};
@@ -213,6 +208,37 @@ export default class SearchResults extends React.Component {
                     </ul>
                 </div>
             );
+        } else if (this.props.isPinnedPosts && noResults) {
+            ctls = (
+                <div className='sidebar--right__subheader'>
+                    <ul>
+                        <li>
+                            <FormattedHTMLMessage
+                                id='search_results.usagePin1'
+                                defaultMessage='There are no pinned messages yet.'
+                            />
+                        </li>
+                        <li>
+                            <FormattedHTMLMessage
+                                id='search_results.usagePin2'
+                                defaultMessage='All members of this channel can pin important or useful messages.'
+                            />
+                        </li>
+                        <li>
+                            <FormattedHTMLMessage
+                                id='search_results.usagePin3'
+                                defaultMessage='Pinned messages are visible to all channel members.'
+                            />
+                        </li>
+                        <li>
+                            <FormattedHTMLMessage
+                                id='search_results.usagePin4'
+                                defaultMessage={'To pin a message: Go to the message that you want to pin and click [...] > "Pin to channel".'}
+                            />
+                        </li>
+                    </ul>
+                </div>
+            );
         } else if (!searchTerm && noResults) {
             ctls = (
                 <div className='sidebar--right__subheader'>
@@ -242,7 +268,7 @@ export default class SearchResults extends React.Component {
                 </div>
             );
         } else {
-            ctls = results.order.map(function mymap(id) {
+            ctls = results.order.map(function searchResults(id, idx, arr) {
                 const post = results.posts[id];
                 let profile;
                 if (UserStore.getCurrentId() === post.user_id) {
@@ -260,12 +286,16 @@ export default class SearchResults extends React.Component {
                 if (this.state.flaggedPosts) {
                     isFlagged = this.state.flaggedPosts.get(post.id) === 'true';
                 }
+
+                const reverseCount = arr.length - idx - 1;
+
                 return (
                     <SearchResultsItem
                         key={post.id}
                         channel={this.state.channels.get(post.channel_id)}
                         compactDisplay={this.state.compactDisplay}
                         post={post}
+                        lastPostCount={(reverseCount >= 0 && reverseCount < Constants.TEST_ID_COUNT) ? reverseCount : -1}
                         user={profile}
                         term={searchTerm}
                         isMentionSearch={this.props.isMentionSearch}
@@ -281,21 +311,20 @@ export default class SearchResults extends React.Component {
         }
 
         return (
-            <div className='sidebar--right__content'>
-                <div className='search-bar__container sidebar--right__search-header'>{searchForm}</div>
-                <div className='sidebar-right__body'>
-                    <SearchResultsHeader
-                        isMentionSearch={this.props.isMentionSearch}
-                        toggleSize={this.props.toggleSize}
-                        shrink={this.props.shrink}
-                        isFlaggedPosts={this.props.isFlaggedPosts}
-                    />
-                    <div
-                        id='search-items-container'
-                        className='search-items-container'
-                    >
-                        {ctls}
-                    </div>
+            <div className='sidebar-right__body'>
+                <SearchResultsHeader
+                    isMentionSearch={this.props.isMentionSearch}
+                    toggleSize={this.props.toggleSize}
+                    shrink={this.props.shrink}
+                    isFlaggedPosts={this.props.isFlaggedPosts}
+                    isPinnedPosts={this.props.isPinnedPosts}
+                    channelDisplayName={this.props.channelDisplayName}
+                />
+                <div
+                    id='search-items-container'
+                    className='search-items-container'
+                >
+                    {ctls}
                 </div>
             </div>
         );
@@ -303,9 +332,11 @@ export default class SearchResults extends React.Component {
 }
 
 SearchResults.propTypes = {
-    isMentionSearch: React.PropTypes.bool,
-    useMilitaryTime: React.PropTypes.bool.isRequired,
-    toggleSize: React.PropTypes.func,
-    shrink: React.PropTypes.func,
-    isFlaggedPosts: React.PropTypes.bool
+    isMentionSearch: PropTypes.bool,
+    useMilitaryTime: PropTypes.bool.isRequired,
+    toggleSize: PropTypes.func,
+    shrink: PropTypes.func,
+    isFlaggedPosts: PropTypes.bool,
+    isPinnedPosts: PropTypes.bool,
+    channelDisplayName: PropTypes.string.isRequired
 };

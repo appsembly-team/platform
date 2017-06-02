@@ -1,4 +1,4 @@
-// Copyright (c) 2015 Mattermost, Inc. All Rights Reserved.
+// Copyright (c) 2015-present Mattermost, Inc. All Rights Reserved.
 // See License.txt for license information.
 
 import Constants from 'utils/constants.jsx';
@@ -10,9 +10,76 @@ import AutosizeTextarea from 'components/autosize_textarea.jsx';
 
 const KeyCodes = Constants.KeyCodes;
 
+import PropTypes from 'prop-types';
+
 import React from 'react';
 
 export default class SuggestionBox extends React.Component {
+    static propTypes = {
+
+        /**
+         * The list component to render, usually SuggestionList
+         */
+        listComponent: PropTypes.func.isRequired,
+
+        /**
+         * The HTML input box type
+         */
+        type: PropTypes.oneOf(['input', 'textarea', 'search']).isRequired,
+
+        /**
+         * The value of in the input
+         */
+        value: PropTypes.string.isRequired,
+
+        /**
+         * Array of suggestion providers
+         */
+        providers: PropTypes.arrayOf(PropTypes.object),
+
+        /**
+         * Where the list will be displayed relative to the input box, defaults to 'top'
+         */
+        listStyle: PropTypes.string,
+
+        /**
+         * Set to true to draw dividers between types of list items, defaults to false
+         */
+        renderDividers: PropTypes.bool,
+
+        /**
+         * Set to allow TAB to select an item in the list, defaults to true
+         */
+        completeOnTab: PropTypes.bool,
+
+        /**
+         * Function called when input box loses focus
+         */
+        onBlur: PropTypes.func,
+
+        /**
+         * Function called when input box value changes
+         */
+        onChange: PropTypes.func,
+
+        /**
+         * Function called when a key is pressed and the input box is in focus
+         */
+        onKeyDown: PropTypes.func,
+
+        /**
+         * Function called when an item is selected
+         */
+        onItemSelected: PropTypes.func
+    }
+
+    static defaultProps = {
+        type: 'input',
+        listStyle: 'top',
+        renderDividers: false,
+        completeOnTab: true
+    }
+
     constructor(props) {
         super(props);
 
@@ -25,6 +92,7 @@ export default class SuggestionBox extends React.Component {
         this.handleCompositionEnd = this.handleCompositionEnd.bind(this);
         this.handleKeyDown = this.handleKeyDown.bind(this);
         this.handlePretextChanged = this.handlePretextChanged.bind(this);
+        this.blur = this.blur.bind(this);
 
         this.suggestionId = Utils.generateId();
         SuggestionStore.registerSuggestionBox(this.suggestionId);
@@ -34,15 +102,21 @@ export default class SuggestionBox extends React.Component {
     }
 
     componentDidMount() {
-        SuggestionStore.addCompleteWordListener(this.suggestionId, this.handleCompleteWord);
         SuggestionStore.addPretextChangedListener(this.suggestionId, this.handlePretextChanged);
     }
 
     componentWillUnmount() {
-        SuggestionStore.removeCompleteWordListener(this.suggestionId, this.handleCompleteWord);
         SuggestionStore.removePretextChangedListener(this.suggestionId, this.handlePretextChanged);
 
         SuggestionStore.unregisterSuggestionBox(this.suggestionId);
+    }
+
+    componentDidUpdate(prevProps) {
+        if (this.props.providers !== prevProps.providers) {
+            const textbox = this.getTextbox();
+            const pretext = textbox.value.substring(0, textbox.selectionEnd);
+            GlobalActions.emitSuggestionPretextChanged(this.suggestionId, pretext);
+        }
     }
 
     getTextbox() {
@@ -63,7 +137,7 @@ export default class SuggestionBox extends React.Component {
         setTimeout(() => {
             // Delay this slightly so that we don't clear the suggestions before we run click handlers on SuggestionList
             GlobalActions.emitClearSuggestions(this.suggestionId);
-        }, 100);
+        }, 200);
 
         if (this.props.onBlur) {
             this.props.onBlur();
@@ -138,9 +212,8 @@ export default class SuggestionBox extends React.Component {
 
         if (this.props.onItemSelected) {
             const items = SuggestionStore.getItems(this.suggestionId);
-            const selection = SuggestionStore.getSelection(this.suggestionId);
             for (const i of items) {
-                if (i.name === selection) {
+                if (i.name === term) {
                     this.props.onItemSelected(i);
                     break;
                 }
@@ -153,6 +226,14 @@ export default class SuggestionBox extends React.Component {
         window.requestAnimationFrame(() => {
             Utils.setCaretPosition(textbox, prefix.length + term.length + 1);
         });
+
+        for (const provider of this.props.providers) {
+            if (provider.handleCompleteWord) {
+                provider.handleCompleteWord(term, matchedPretext);
+            }
+        }
+
+        GlobalActions.emitCompleteWordSuggestion(this.suggestionId);
     }
 
     handleKeyDown(e) {
@@ -163,8 +244,9 @@ export default class SuggestionBox extends React.Component {
             } else if (e.which === KeyCodes.DOWN) {
                 GlobalActions.emitSelectNextSuggestion(this.suggestionId);
                 e.preventDefault();
-            } else if (e.which === KeyCodes.ENTER || e.which === KeyCodes.TAB) {
-                GlobalActions.emitCompleteWordSuggestion(this.suggestionId);
+            } else if (e.which === KeyCodes.ENTER || (this.props.completeOnTab && e.which === KeyCodes.TAB)) {
+                this.handleCompleteWord(SuggestionStore.getSelection(this.suggestionId), SuggestionStore.getSelectedMatchedPretext(this.suggestionId));
+                this.props.onKeyDown(e);
                 e.preventDefault();
             } else if (e.which === KeyCodes.ESCAPE) {
                 GlobalActions.emitClearSuggestions(this.suggestionId);
@@ -178,9 +260,18 @@ export default class SuggestionBox extends React.Component {
     }
 
     handlePretextChanged(pretext) {
+        let handled = false;
         for (const provider of this.props.providers) {
-            provider.handlePretextChanged(this.suggestionId, pretext);
+            handled = provider.handlePretextChanged(this.suggestionId, pretext) || handled;
         }
+
+        if (!handled) {
+            SuggestionStore.clearSuggestions(this.suggestionId);
+        }
+    }
+
+    blur() {
+        this.refs.textbox.blur();
     }
 
     render() {
@@ -194,6 +285,7 @@ export default class SuggestionBox extends React.Component {
 
         // Don't pass props used by SuggestionBox
         Reflect.deleteProperty(props, 'providers');
+        Reflect.deleteProperty(props, 'onChange'); // We use onInput instead of onChange on the actual input
         Reflect.deleteProperty(props, 'onItemSelected');
 
         const childProps = {
@@ -242,6 +334,7 @@ export default class SuggestionBox extends React.Component {
                     suggestionId={this.suggestionId}
                     location={listStyle}
                     renderDividers={renderDividers}
+                    onCompleteWord={this.handleCompleteWord}
                 />
             </div>
         );
@@ -261,23 +354,3 @@ export default class SuggestionBox extends React.Component {
         return '';
     }
 }
-
-SuggestionBox.defaultProps = {
-    type: 'input',
-    listStyle: 'top'
-};
-
-SuggestionBox.propTypes = {
-    listComponent: React.PropTypes.func.isRequired,
-    type: React.PropTypes.oneOf(['input', 'textarea', 'search']).isRequired,
-    value: React.PropTypes.string.isRequired,
-    providers: React.PropTypes.arrayOf(React.PropTypes.object),
-    listStyle: React.PropTypes.string,
-    renderDividers: React.PropTypes.bool,
-
-    // explicitly name any input event handlers we override and need to manually call
-    onBlur: React.PropTypes.func,
-    onChange: React.PropTypes.func,
-    onKeyDown: React.PropTypes.func,
-    onItemSelected: React.PropTypes.func
-};

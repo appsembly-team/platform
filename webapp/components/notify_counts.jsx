@@ -1,37 +1,10 @@
-// Copyright (c) 2015 Mattermost, Inc. All Rights Reserved.
+// Copyright (c) 2015-present Mattermost, Inc. All Rights Reserved.
 // See License.txt for license information.
 
 import * as utils from 'utils/utils.jsx';
+import {getCountsStateFromStores} from 'utils/channel_utils.jsx';
 import ChannelStore from 'stores/channel_store.jsx';
 import TeamStore from 'stores/team_store.jsx';
-
-function getCountsStateFromStores() {
-    let count = 0;
-    const teamMembers = TeamStore.getMyTeamMembers();
-    const channels = ChannelStore.getAll();
-    const members = ChannelStore.getMyMembers();
-
-    teamMembers.forEach((member) => {
-        if (member.team_id !== TeamStore.getCurrentId()) {
-            count += (member.mention_count || 0);
-        }
-    });
-
-    channels.forEach((channel) => {
-        const channelMember = members[channel.id];
-        if (channelMember == null) {
-            return;
-        }
-
-        if (channel.type === 'D') {
-            count += channel.total_msg_count - channelMember.msg_count;
-        } else if (channelMember.mention_count > 0) {
-            count += channelMember.mention_count;
-        }
-    });
-
-    return {count};
-}
 
 import React from 'react';
 
@@ -63,8 +36,10 @@ export default class NotifyCounts extends React.Component {
         }
     }
     render() {
-        if (this.state.count) {
-            return <span className='badge badge-notify'>{this.state.count}</span>;
+        if (this.state.mentionCount) {
+            return <span className='badge badge-notify'>{this.state.mentionCount}</span>;
+        } else if (this.state.messageCount) {
+            return <span className='badge badge-notify'>{'•'}</span>;
         }
         return null;
     }
